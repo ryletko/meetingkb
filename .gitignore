@@ -31,3 +31,6 @@ meili_data/
 
 # Env
 .env
+
+# uv lock (local convenience env; product install path is pip)
+uv.lock
