@@ -85,3 +85,59 @@ def test_sample_data_is_searchable(tmp_path, monkeypatch):
     hits = kb_app.search_sqlite("Alpha", None, None, 10)
     assert len(hits) >= 1
     assert all("alpha" in hit.text.lower() for hit in hits)
+
+
+def test_search_renders_result_cards(tmp_path, monkeypatch):
+    """Regression guard for the SearchHit render-path conversion (B4 follow-up).
+
+    The other smoke tests only boot the empty start screen or call
+    `search_sqlite` directly — neither one actually renders a result card, so
+    `result_block` / `context_block` / `render_files` / `_card_head_html` are
+    unguarded against a stray dict-style `hit["x"]` access on a `SearchHit`.
+    Driving a real "Alpha" query here forces those render paths to execute.
+    """
+    _index_sample_data_into_tmp(tmp_path, monkeypatch)
+
+    at = AppTest.from_file(str(APP_PATH), default_timeout=30).run()
+    assert not at.exception  # start screen boots clean (no query yet)
+
+    # The search box is keyed into session_state under "q" (see `main()`'s
+    # `st.text_input("Search", key="q", ...)`); setting it directly and
+    # re-running is equivalent to a user typing into the box.
+    at.session_state["q"] = "Alpha"
+    at.run()
+
+    assert not at.exception
+
+    rendered_text = "\n".join(
+        element.value for element in [*at.markdown, *at.title] if hasattr(element, "value")
+    )
+    assert "Alpha" in rendered_text
+    # `kb-snippet` / `kb-card-head` only appear inside `result_block`'s markup,
+    # so their presence proves a card actually rendered (not just "no crash").
+    assert "kb-snippet" in rendered_text
+    assert "kb-card-head" in rendered_text
+
+
+def test_theater_focus_renders_without_exception(tmp_path, monkeypatch):
+    """Cover `render_theater`'s SearchHit attribute access via the `focus` key.
+
+    `main()` only calls `render_theater` when `st.session_state["focus"]`
+    matches a hit id from the current search results, so a query must be set
+    first (see `main()`: `focus` is only consulted after `has_query` is true
+    and `hits` has been computed).
+    """
+    _index_sample_data_into_tmp(tmp_path, monkeypatch)
+
+    from meetingkb.web import app as kb_app
+
+    hits = kb_app.search_sqlite("Alpha", None, None, 10)
+    assert hits, "expected at least one 'Alpha' hit to focus"
+
+    at = AppTest.from_file(str(APP_PATH), default_timeout=30).run()
+    at.session_state["q"] = "Alpha"
+    at.session_state["focus"] = str(hits[0].id)
+    at.run()
+
+    assert not at.exception
+    assert any("Back to results" in (button.label or "") for button in at.button)

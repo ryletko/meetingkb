@@ -359,7 +359,7 @@ def opensearch_query_body(query: str, meeting_id: str | None, term: str | None, 
 def _hit_from_source(
     source: dict,
     hit_id: str,
-    score: object,
+    score: float | None,
     highlighted_text: str,
     match_source: str,
 ) -> SearchHit:
