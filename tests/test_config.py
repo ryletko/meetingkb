@@ -32,3 +32,22 @@ def test_terms_loaded_from_file(tmp_path):
     f.write_text("Alpha\nBeta\n\nGamma\n", encoding="utf-8")
     s = Settings(data_dir=tmp_path, terms_file=f)
     assert s.terms == ["Alpha", "Beta", "Gamma"]
+
+
+def test_media_extensions_default(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    assert s.media_extensions == frozenset(
+        {
+            ".webm",
+            ".mp4",
+            ".mkv",
+            ".mov",
+            ".avi",
+            ".m4a",
+            ".mp3",
+            ".wav",
+            ".aac",
+            ".ogg",
+            ".opus",
+        }
+    )

@@ -1,14 +1,26 @@
 """Typed application settings, loaded from environment variables and `.env`."""
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MEDIA_EXTENSIONS: frozenset[str] = frozenset(
-    {".webm", ".mp4", ".mkv", ".mov", ".avi", ".m4a", ".mp3", ".wav"}
+    {
+        ".webm",
+        ".mp4",
+        ".mkv",
+        ".mov",
+        ".avi",
+        ".m4a",
+        ".mp3",
+        ".wav",
+        ".aac",
+        ".ogg",
+        ".opus",
+    }
 )
 
 RAG_SYSTEM_PROMPT = (
@@ -57,7 +69,7 @@ class Settings(BaseSettings):
             self.db_path = self.data_dir / "knowledge.sqlite"
         return self
 
-    @property
+    @cached_property
     def terms(self) -> list[str]:
         """Terms loaded from `terms_file`, one per non-empty stripped line."""
         if self.terms_file is None:
