@@ -17,11 +17,10 @@ from pathlib import Path
 
 import typer
 
-from meetingkb.config import get_settings
+from meetingkb.context import build_context
 from meetingkb.ingest.gen_thumbnails import generate_all
 from meetingkb.ingest.indexer import build_index
-from meetingkb.ingest.transcriber import FasterWhisperTranscriber, transcribe_dir
-from meetingkb.search.opensearch_backend import OpenSearchClient
+from meetingkb.ingest.transcriber import transcribe_dir
 
 app = typer.Typer(help="MeetingKB — transcribe, index, search meeting recordings.")
 
@@ -49,7 +48,8 @@ def index(
     ),
 ) -> None:
     """Build the SQLite (and, by default, OpenSearch) meeting index."""
-    result = build_index(get_settings(), use_opensearch=not no_opensearch)
+    ctx = build_context()
+    result = build_index(ctx.settings, use_opensearch=not no_opensearch)
     typer.echo(json.dumps(result))
 
 
@@ -60,17 +60,17 @@ def transcribe(
     ),
 ) -> None:
     """Transcribe media files that don't have a transcript yet."""
-    settings = get_settings()
-    input_dir = input if input is not None else settings.data_dir
-    transcriber = FasterWhisperTranscriber(settings)
-    produced = transcribe_dir(settings, transcriber, input_dir)
+    ctx = build_context()
+    input_dir = input if input is not None else ctx.settings.data_dir
+    produced = transcribe_dir(ctx.settings, ctx.transcriber(), input_dir)
     typer.echo(f"produced {len(produced)} transcript(s)")
 
 
 @app.command()
 def thumbnails() -> None:
     """Generate seek-bar hover-preview thumbnails for meetings missing them."""
-    n = generate_all(get_settings())
+    ctx = build_context()
+    n = generate_all(ctx.settings)
     typer.echo(f"generated {n}")
 
 
@@ -86,8 +86,8 @@ def serve(
     ),
 ) -> None:
     """Launch the Streamlit UI."""
-    settings = get_settings()
-    resolved_port = port if port is not None else settings.ui_port
+    ctx = build_context()
+    resolved_port = port if port is not None else ctx.settings.ui_port
     app_path = _web_app_path()
     subprocess.run(
         [
@@ -111,20 +111,19 @@ def up() -> None:
 
     Mirrors the old ``start_kb.bat`` end-to-end bootstrap, cross-platform.
     """
-    settings = get_settings()
+    ctx = build_context()
     subprocess.run(
         ["docker", "compose", "-f", "deploy/docker-compose.yml", "up", "-d"],
         check=True,
     )
 
-    client = OpenSearchClient(settings.opensearch_url)
-    if not client.wait_available():
+    if not ctx.search_backend().wait_available():
         typer.echo("OpenSearch did not become available in time.", err=True)
         raise typer.Exit(1)
 
-    typer.echo(json.dumps(build_index(settings)))
-    typer.echo(f"generated {generate_all(settings)}")
-    serve(port=settings.ui_port)
+    typer.echo(json.dumps(build_index(ctx.settings)))
+    typer.echo(f"generated {generate_all(ctx.settings)}")
+    serve(port=ctx.settings.ui_port)
 
 
 @app.command()
