@@ -1,0 +1,14 @@
+{
+  "language": "en",
+  "duration": 45.0,
+  "segments": [
+    {"start": 0.0, "end": 5.0, "text": "Welcome to the planning session for next quarter."},
+    {"start": 5.0, "end": 10.0, "text": "First item on the agenda is the Alpha roadmap."},
+    {"start": 10.0, "end": 16.0, "text": "We plan to expand Alpha into two new regions."},
+    {"start": 16.0, "end": 22.0, "text": "Beta will move into general availability next month."},
+    {"start": 22.0, "end": 28.0, "text": "Let's discuss the timeline for the Beta launch event."},
+    {"start": 28.0, "end": 34.0, "text": "The Gamma initiative needs another two weeks of testing."},
+    {"start": 34.0, "end": 40.0, "text": "Resourcing for Gamma is still being finalized."},
+    {"start": 40.0, "end": 45.0, "text": "Thanks all, see you at the next planning meeting."}
+  ]
+}

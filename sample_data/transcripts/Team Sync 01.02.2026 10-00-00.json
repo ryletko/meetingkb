@@ -1,0 +1,14 @@
+{
+  "language": "en",
+  "duration": 40.0,
+  "segments": [
+    {"start": 0.0, "end": 4.0, "text": "Good morning everyone, thanks for joining the Team Sync."},
+    {"start": 4.0, "end": 9.0, "text": "Let's start with a status update on the Alpha project."},
+    {"start": 9.0, "end": 14.0, "text": "The Alpha rollout is on track for next week."},
+    {"start": 14.0, "end": 19.0, "text": "Beta testing wrapped up yesterday with no major issues."},
+    {"start": 19.0, "end": 25.0, "text": "We still need feedback from the Gamma pilot group."},
+    {"start": 25.0, "end": 30.0, "text": "Gamma numbers look promising so far."},
+    {"start": 30.0, "end": 35.0, "text": "Any blockers before we move to the next topic?"},
+    {"start": 35.0, "end": 40.0, "text": "Great, let's wrap up and reconvene tomorrow."}
+  ]
+}
