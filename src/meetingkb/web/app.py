@@ -11,18 +11,17 @@ import requests
 import streamlit as st
 
 from meetingkb.config import get_settings
+from meetingkb.context import AppContext, build_context
 from meetingkb.ingest import thumbnails
 from meetingkb.models import RagDocument
 from meetingkb.rag.client import (
     LLMConfig,
     LLMError,
-    OpenAICompatibleClient,
     list_ollama_models,
 )
 from meetingkb.rag.context import build_context_documents, build_rag_messages
-from meetingkb.search.opensearch_backend import OpenSearchClient, OpenSearchError
+from meetingkb.search.opensearch_backend import OpenSearchError
 from meetingkb.search.query import fuzzy_match_query, highlight_fuzzy, query_variants
-from meetingkb.search.storage import connect
 from meetingkb.web.asset_utils import ensure_player_asset
 from meetingkb.web.media_server import start_media_server
 
@@ -33,6 +32,11 @@ DB_PATH = _settings.db_path
 ROOT_DIR = _settings.data_dir
 OPENSEARCH_URL = _settings.opensearch_url
 OPENSEARCH_SEGMENTS_INDEX = _settings.os_segments_index
+
+
+@st.cache_resource
+def _ctx() -> AppContext:
+    return build_context()
 
 
 st.set_page_config(page_title="Meeting Knowledge Base", page_icon="◈", layout="wide")
@@ -222,12 +226,12 @@ def video_format(path: str | Path) -> str:
 
 @st.cache_resource
 def db_conn() -> sqlite3.Connection:
-    return connect(DB_PATH)
+    return _ctx().sqlite()
 
 
 @st.cache_data(ttl=10)
 def opensearch_available() -> bool:
-    return OpenSearchClient(OPENSEARCH_URL).available()
+    return _ctx().opensearch_available()
 
 
 @st.cache_data(ttl=10)
@@ -352,7 +356,7 @@ def opensearch_query_body(query: str, meeting_id: str | None, term: str | None, 
 
 
 def search_opensearch(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[dict]:
-    client = OpenSearchClient(OPENSEARCH_URL)
+    client = _ctx().search_backend()
     merged: dict[str, dict] = {}
     variants = query_variants(query) if query.strip() else [""]
 
@@ -860,7 +864,7 @@ def render_rag_mode(
         )
         try:
             with st.spinner("Asking LLM..."):
-                answer = OpenAICompatibleClient(config).chat(
+                answer = _ctx().llm_client(config).chat(
                     build_rag_messages(query, documents, _settings.rag_system_prompt)
                 )
         except LLMError as exc:
