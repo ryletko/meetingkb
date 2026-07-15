@@ -1,0 +1,5 @@
+{"language": "en", "duration": 12.5,
+ "segments": [
+   {"start": 0.0, "end": 4.0, "text": "Welcome to the Alpha sync."},
+   {"start": 4.0, "end": 9.0, "text": "Beta pipeline is green."}
+ ]}
