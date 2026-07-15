@@ -8,6 +8,7 @@ from meetingkb.ingest.transcriber import FasterWhisperTranscriber
 from meetingkb.rag.client import LLMConfig, OpenAICompatibleClient
 from meetingkb.search import storage
 from meetingkb.search.opensearch_backend import OpenSearchClient
+from meetingkb.search.service import SearchService
 
 
 class AppContext:
@@ -18,6 +19,7 @@ class AppContext:
         self._sqlite: sqlite3.Connection | None = None
         self._search_backend: OpenSearchClient | None = None
         self._transcriber: FasterWhisperTranscriber | None = None
+        self._search_service: SearchService | None = None
 
     def sqlite(self) -> sqlite3.Connection:
         if self._sqlite is None:
@@ -31,6 +33,13 @@ class AppContext:
 
     def opensearch_available(self) -> bool:
         return self.search_backend().available()
+
+    def search_service(self) -> SearchService:
+        if self._search_service is None:
+            self._search_service = SearchService(
+                self.sqlite(), self.search_backend(), self.settings
+            )
+        return self._search_service
 
     def llm_client(self, config: LLMConfig) -> OpenAICompatibleClient:
         return OpenAICompatibleClient(config)

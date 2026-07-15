@@ -34,7 +34,8 @@ MeetingKB is organized as a small set of layers:
 domain/config    meetingkb.models, meetingkb.config.Settings
                        │
 services         meetingkb.ingest   (transcriber, indexer, thumbnails)
-                 meetingkb.search   (storage/SQLite, opensearch_backend, query)
+                 meetingkb.search   (storage/SQLite, opensearch_backend, query,
+                                     service.SearchService)
                  meetingkb.rag      (LLM client, context assembly)
                        │
 context          meetingkb.context.AppContext
@@ -55,20 +56,29 @@ interfaces       meetingkb.web (Streamlit UI + media server)
   OpenSearch backend, fuzzy/transliteration query expansion, returning
   typed `SearchHit`s), and RAG (an OpenAI-compatible chat client plus
   `RagDocument` context assembly) are independent of each other and of any
-  particular interface.
+  particular interface. Search orchestration itself lives behind
+  `meetingkb.search.service.SearchService`: given a SQLite connection, an
+  OpenSearch client, and `Settings`, its `search()` method builds the
+  OpenSearch/FTS query bodies, dispatches to OpenSearch (falling back to
+  SQLite FTS on failure) or straight to SQLite FTS/fuzzy matching, merges and
+  ranks the hits, and returns typed `SearchHit`s — the Streamlit UI no longer
+  contains any search logic of its own.
 - **`AppContext`** (`meetingkb.context`) wires these services together
   behind a single object built from a `Settings` instance (`build_context()`).
   Both interfaces obtain their services through it: the `kb` CLI (`cli.py`)
   builds one `AppContext` per command and uses `ctx.transcriber()`,
   `ctx.search_backend()`, and `ctx.settings`; the Streamlit UI (`web/app.py`)
   builds a cached context (`@st.cache_resource` `_ctx()`) and uses
-  `_ctx().sqlite()`, `_ctx().search_backend()`, `_ctx().llm_client(config)`,
-  and `_ctx().opensearch_available()`.
+  `_ctx().sqlite()`, `_ctx().search_backend()`, `_ctx().search_service()`,
+  `_ctx().llm_client(config)`, and `_ctx().opensearch_available()`.
 - **Interfaces** — `web/app.py` (the Streamlit UI) and `cli.py` (the `kb`
   Typer CLI) are thin: they handle rendering/dispatch and get every service
   they need from `AppContext` rather than constructing clients themselves.
-  The UI renders search results by attribute access on `SearchHit` and the
-  RAG answer by rendering `RagDocument`s.
+  The UI's only search entry point is `_ctx().search_service().search(...)`;
+  it collects filters (query, meeting, term, limit) and renders the returned
+  `SearchHit`s by attribute access, with no query-building or backend
+  dispatch of its own, and renders the RAG answer by rendering
+  `RagDocument`s.
 
 ## Requirements
 

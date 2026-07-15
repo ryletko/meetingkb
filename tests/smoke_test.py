@@ -75,14 +75,13 @@ def test_app_runs_without_exception(tmp_path, monkeypatch):
 def test_sample_data_is_searchable(tmp_path, monkeypatch):
     _index_sample_data_into_tmp(tmp_path, monkeypatch)
 
-    # get_settings() is lru_cache'd; the env is already set for this test, and
-    # the cache above was populated from the same env, so a fresh import of
-    # the app module (deferred here so `st.set_page_config` only runs after
-    # KB_DATA_DIR/KB_OPENSEARCH_URL point at our tmp fixtures) reads it back
-    # consistently. Import lazily rather than at module scope for that reason.
-    from meetingkb.web import app as kb_app
+    # Build the AppContext/SearchService directly against the tmp settings
+    # populated above, rather than going through the Streamlit app module.
+    from meetingkb.config import get_settings
+    from meetingkb.context import build_context
 
-    hits = kb_app.search_sqlite("Alpha", None, None, 10)
+    ctx = build_context(get_settings())
+    hits = ctx.search_service().search("Alpha", None, None, 10, opensearch_available=False)
     assert len(hits) >= 1
     assert all("alpha" in hit.text.lower() for hit in hits)
 
@@ -91,7 +90,7 @@ def test_search_renders_result_cards(tmp_path, monkeypatch):
     """Regression guard for the SearchHit render-path conversion (B4 follow-up).
 
     The other smoke tests only boot the empty start screen or call
-    `search_sqlite` directly — neither one actually renders a result card, so
+    `SearchService.search` directly — neither one actually renders a result card, so
     `result_block` / `context_block` / `render_files` / `_card_head_html` are
     unguarded against a stray dict-style `hit["x"]` access on a `SearchHit`.
     Driving a real "Alpha" query here forces those render paths to execute.
@@ -129,9 +128,11 @@ def test_theater_focus_renders_without_exception(tmp_path, monkeypatch):
     """
     _index_sample_data_into_tmp(tmp_path, monkeypatch)
 
-    from meetingkb.web import app as kb_app
+    from meetingkb.config import get_settings
+    from meetingkb.context import build_context
 
-    hits = kb_app.search_sqlite("Alpha", None, None, 10)
+    ctx = build_context(get_settings())
+    hits = ctx.search_service().search("Alpha", None, None, 10, opensearch_available=False)
     assert hits, "expected at least one 'Alpha' hit to focus"
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=30).run()
