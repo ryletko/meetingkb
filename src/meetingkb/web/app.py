@@ -24,12 +24,9 @@ from meetingkb.web.asset_utils import ensure_player_asset
 from meetingkb.web.media_server import start_media_server
 
 # All runtime configuration comes from Settings; shadow the former module-level
-# constants so the rest of this file reads them unchanged.
+# constant so the rest of this file reads it unchanged.
 _settings = get_settings()
-DB_PATH = _settings.db_path
 ROOT_DIR = _settings.data_dir
-OPENSEARCH_URL = _settings.opensearch_url
-OPENSEARCH_SEGMENTS_INDEX = _settings.os_segments_index
 
 
 @st.cache_resource
