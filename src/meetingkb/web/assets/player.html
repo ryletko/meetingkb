@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/assets/plyr.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  .plyr, .plyr__video-wrapper { height: 100% !important; padding: 0 !important; background: #000; }
+  .plyr video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  :root {
+    --plyr-color-main: #2DD4BF;
+    --plyr-video-control-color: #E6E9EF;
+    --plyr-menu-background: #171A21;
+    --plyr-menu-color: #E6E9EF;
+    --plyr-tooltip-background: #0F1115;
+    --plyr-tooltip-color: #E6E9EF;
+  }
+</style>
+</head>
+<body>
+  <video id="player" playsinline preload="metadata"></video>
+  <script src="/assets/plyr.min.js"></script>
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var video = document.getElementById('player');
+      var src = q.get('video');
+      var vtt = q.get('vtt');
+      var start = parseFloat(q.get('start') || '0') || 0;
+
+      var source = document.createElement('source');
+      source.src = src;
+      video.appendChild(source);
+
+      var opts = {
+        iconUrl: '/assets/plyr.svg',
+        blankVideo: '',
+        ratio: null,
+        storage: { enabled: false },
+        keyboard: { focused: true, global: false },
+        controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+        settings: ['speed'],
+        speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] },
+        tooltips: { controls: true, seek: true }
+      };
+      if (vtt) {
+        opts.previewThumbnails = { enabled: true, src: vtt };
+      }
+
+      var player = new Plyr(video, opts);
+
+      var seeked = false;
+      function seekToStart() {
+        if (seeked || start <= 0) return;
+        if (video.readyState < 1 || !isFinite(video.duration) || video.duration <= 0) return;
+        try {
+          video.currentTime = Math.min(start, video.duration - 0.1);
+          seeked = true;
+        } catch (e) {}
+      }
+      // Native media events fire reliably once metadata is known; seek there.
+      video.addEventListener('loadedmetadata', seekToStart);
+      video.addEventListener('loadeddata', seekToStart);
+      video.addEventListener('canplay', seekToStart);
+      player.on('ready', seekToStart);
+      seekToStart();  // in case metadata is already available
+
+      // Only one player may run at a time. Every card is its own iframe, but they
+      // all come from the media server, so a same-origin channel reaches them all
+      // regardless of the (cross-origin) Streamlit page hosting them.
+      if (typeof BroadcastChannel === 'function') {
+        var me = Math.random().toString(36).slice(2);
+        var bus = new BroadcastChannel('kb-player');
+        player.on('play', function () {
+          bus.postMessage({ type: 'play', id: me });
+        });
+        bus.onmessage = function (event) {
+          var msg = event.data;
+          if (!msg || msg.type !== 'play' || msg.id === me) return;
+          if (!player.paused) player.pause();
+        };
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -33,12 +33,20 @@ Repository = "https://github.com/OWNER/meetingkb"
 [tool.hatch.build.targets.wheel]
 packages = ["src/meetingkb"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/meetingkb/web/assets/player.html" = "meetingkb/web/assets/player.html"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The Streamlit UI embeds a verbatim CSS stylesheet (KB_CSS) and ported HTML
+# builders whose long lines are kept byte-for-byte; line length is not enforced.
+"src/meetingkb/web/app.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
