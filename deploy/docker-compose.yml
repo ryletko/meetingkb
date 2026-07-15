@@ -18,7 +18,7 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - "meetingkb_opensearch_data:/usr/share/opensearch/data"
 

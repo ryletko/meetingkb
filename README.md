@@ -28,8 +28,7 @@ unless you point the LLM at a remote endpoint yourself.
 
 ## Architecture
 
-MeetingKB is organized as a small set of layers, wired together at startup
-by `AppContext`:
+MeetingKB is organized as a small set of layers:
 
 ```
 domain/config    meetingkb.models, meetingkb.config.Settings
@@ -40,23 +39,26 @@ services         meetingkb.ingest   (transcriber, indexer, thumbnails)
                        │
 interfaces       meetingkb.web (Streamlit UI + media server)
                  meetingkb.cli (Typer commands)
-                       │
-                 AppContext (meetingkb.context) lazily builds and caches
-                 the above services from a single Settings instance
 ```
 
-- **Domain/config** — `Settings` (pydantic-settings) is the single source of
-  truth for paths, endpoints, and tuning knobs; everything else takes it as
-  a constructor argument instead of reading globals.
+- **Domain/config** — `Settings` (pydantic-settings), loaded via
+  `get_settings()` from environment variables / a `.env` file, is the single
+  source of truth for paths, endpoints, and tuning knobs. `meetingkb.models`
+  holds the domain dataclasses used along the way (e.g. `RagDocument`, the
+  model threaded through the RAG path from search hit to prompt context).
 - **Services** — ingest (transcribe media, build the index, generate
   thumbnails), search (SQLite storage, OpenSearch backend, fuzzy/transliteration
   query expansion), and RAG (an OpenAI-compatible chat client plus context
   assembly from search results) are independent of each other and of any
   particular interface.
-- **Interfaces** — the Streamlit web UI and the `kb` CLI both consume the
-  services layer through `AppContext`, which lazily constructs and caches
-  the SQLite connection, the OpenSearch client, the transcriber, and LLM
-  clients from a `Settings` instance.
+- **Interfaces** — `web/app.py` (the Streamlit UI) and `cli.py` (the `kb`
+  Typer CLI) are thin: each calls `get_settings()` and constructs the
+  services it needs directly (`OpenSearchClient`, `storage.connect`,
+  `OpenAICompatibleClient`, `FasterWhisperTranscriber`, etc.).
+  `meetingkb.context.AppContext` is a small optional convenience that wires
+  those same services together behind a single object for programmatic
+  embedding; it is not imported by the shipped CLI or UI and is currently
+  exercised only by the test suite.
 
 ## Requirements
 
@@ -93,6 +95,11 @@ kb serve
 
 `kb up` chains the same steps (start OpenSearch, index, generate
 thumbnails, serve) into a single command for a quick end-to-end bootstrap.
+Note: `kb up` invokes `deploy/docker-compose.yml` as a path relative to the
+repo root, and `deploy/` is not included in the packaged wheel — so `kb up`
+only works from a cloned repo checkout, not from a bare `pip install`. Use
+the explicit `docker compose -f deploy/docker-compose.yml up -d` step above
+instead if you installed from a wheel/PyPI.
 
 ### Try it with the bundled sample data (no Docker/GPU needed)
 
@@ -149,6 +156,7 @@ explicitly, and are not meant to be overridden independently in normal use.
 | `kb serve [--port PORT]` | Launch the Streamlit UI. |
 | `kb up` | Start OpenSearch (Docker Compose), index, generate thumbnails, then serve — an end-to-end bootstrap. |
 | `kb doctor` | Check the local environment for required and optional tooling (ffmpeg, Docker, Python version, `faster-whisper`, GPU). |
+| `kb version` | Print the installed MeetingKB version. |
 
 ## Screenshots
 
