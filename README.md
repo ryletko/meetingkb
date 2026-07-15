@@ -37,6 +37,8 @@ services         meetingkb.ingest   (transcriber, indexer, thumbnails)
                  meetingkb.search   (storage/SQLite, opensearch_backend, query)
                  meetingkb.rag      (LLM client, context assembly)
                        │
+context          meetingkb.context.AppContext
+                       │
 interfaces       meetingkb.web (Streamlit UI + media server)
                  meetingkb.cli (Typer commands)
 ```
@@ -44,21 +46,29 @@ interfaces       meetingkb.web (Streamlit UI + media server)
 - **Domain/config** — `Settings` (pydantic-settings), loaded via
   `get_settings()` from environment variables / a `.env` file, is the single
   source of truth for paths, endpoints, and tuning knobs. `meetingkb.models`
-  holds the domain dataclasses used along the way (e.g. `RagDocument`, the
-  model threaded through the RAG path from search hit to prompt context).
-- **Services** — ingest (transcribe media, build the index, generate
-  thumbnails), search (SQLite storage, OpenSearch backend, fuzzy/transliteration
-  query expansion), and RAG (an OpenAI-compatible chat client plus context
-  assembly from search results) are independent of each other and of any
+  holds the domain dataclasses threaded through the pipeline: the indexer
+  (`meetingkb.ingest.indexer`) builds `Meeting`/`Segment` records and
+  serializes them for storage, search returns `SearchHit` objects, and the
+  RAG path assembles `RagDocument`s from search hits for prompt context.
+- **Services** — ingest (transcribe media, build the index from typed
+  `Meeting`/`Segment` models, generate thumbnails), search (SQLite storage,
+  OpenSearch backend, fuzzy/transliteration query expansion, returning
+  typed `SearchHit`s), and RAG (an OpenAI-compatible chat client plus
+  `RagDocument` context assembly) are independent of each other and of any
   particular interface.
+- **`AppContext`** (`meetingkb.context`) wires these services together
+  behind a single object built from a `Settings` instance (`build_context()`).
+  Both interfaces obtain their services through it: the `kb` CLI (`cli.py`)
+  builds one `AppContext` per command and uses `ctx.transcriber()`,
+  `ctx.search_backend()`, and `ctx.settings`; the Streamlit UI (`web/app.py`)
+  builds a cached context (`@st.cache_resource` `_ctx()`) and uses
+  `_ctx().sqlite()`, `_ctx().search_backend()`, `_ctx().llm_client(config)`,
+  and `_ctx().opensearch_available()`.
 - **Interfaces** — `web/app.py` (the Streamlit UI) and `cli.py` (the `kb`
-  Typer CLI) are thin: each calls `get_settings()` and constructs the
-  services it needs directly (`OpenSearchClient`, `storage.connect`,
-  `OpenAICompatibleClient`, `FasterWhisperTranscriber`, etc.).
-  `meetingkb.context.AppContext` is a small optional convenience that wires
-  those same services together behind a single object for programmatic
-  embedding; it is not imported by the shipped CLI or UI and is currently
-  exercised only by the test suite.
+  Typer CLI) are thin: they handle rendering/dispatch and get every service
+  they need from `AppContext` rather than constructing clients themselves.
+  The UI renders search results by attribute access on `SearchHit` and the
+  RAG answer by rendering `RagDocument`s.
 
 ## Requirements
 
