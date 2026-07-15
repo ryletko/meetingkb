@@ -84,4 +84,4 @@ def test_sample_data_is_searchable(tmp_path, monkeypatch):
 
     hits = kb_app.search_sqlite("Alpha", None, None, 10)
     assert len(hits) >= 1
-    assert all("alpha" in hit["text"].lower() for hit in hits)
+    assert all("alpha" in hit.text.lower() for hit in hits)

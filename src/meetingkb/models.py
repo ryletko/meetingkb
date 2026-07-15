@@ -29,6 +29,12 @@ class SearchHit:
     text: str
     terms: list[str]
     score: float
+    transcript_txt_path: str
+    transcript_json_path: str
+    # Optional presentation fields: highlighted markup and how the hit was matched.
+    # Not every search path sets them (plain FTS has neither), so they default to "".
+    highlighted_text: str = ""
+    match_source: str = ""
 
 
 @dataclass(frozen=True)

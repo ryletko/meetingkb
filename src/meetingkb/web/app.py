@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import urllib.parse
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import requests
@@ -13,7 +14,7 @@ import streamlit as st
 from meetingkb.config import get_settings
 from meetingkb.context import AppContext, build_context
 from meetingkb.ingest import thumbnails
-from meetingkb.models import RagDocument
+from meetingkb.models import RagDocument, SearchHit
 from meetingkb.rag.client import (
     LLMConfig,
     LLMError,
@@ -355,43 +356,103 @@ def opensearch_query_body(query: str, meeting_id: str | None, term: str | None, 
     }
 
 
-def search_opensearch(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[dict]:
+def _hit_from_source(
+    source: dict,
+    hit_id: str,
+    score: object,
+    highlighted_text: str,
+    match_source: str,
+) -> SearchHit:
+    """Build a `SearchHit` from an OpenSearch `_source` segment doc."""
+    return SearchHit(
+        id=hit_id,
+        meeting_id=source.get("meeting_id") or "",
+        title=source.get("title") or "",
+        meeting_date=source.get("meeting_date") or "",
+        source_path=source.get("source_path") or "",
+        segment_index=source.get("segment_index"),
+        start_sec=source.get("start_sec"),
+        end_sec=source.get("end_sec"),
+        start_label=source.get("start_label") or seconds_label(source.get("start_sec")),
+        end_label=source.get("end_label") or seconds_label(source.get("end_sec")),
+        text=source.get("text") or "",
+        terms=source.get("terms") or [],
+        score=float(score or 0.0),
+        transcript_txt_path=source.get("transcript_txt_path") or "",
+        transcript_json_path=source.get("transcript_json_path") or "",
+        highlighted_text=highlighted_text or "",
+        match_source=match_source or "",
+    )
+
+
+def _hit_from_row(
+    row: sqlite3.Row,
+    score: float,
+    highlighted_text: str = "",
+    match_source: str = "",
+) -> SearchHit:
+    """Build a `SearchHit` from a SQLite `segments`+`meetings` result row."""
+    try:
+        terms = json.loads(row["terms"] or "[]")
+    except json.JSONDecodeError:
+        terms = []
+    return SearchHit(
+        id=row["id"],
+        meeting_id=row["meeting_id"],
+        title=row["title"] or "",
+        meeting_date=row["meeting_date"] or "",
+        source_path=row["source_path"] or "",
+        segment_index=row["segment_index"],
+        start_sec=row["start_sec"],
+        end_sec=row["end_sec"],
+        start_label=seconds_label(row["start_sec"]),
+        end_label=seconds_label(row["end_sec"]),
+        text=row["text"] or "",
+        terms=terms,
+        score=float(score),
+        transcript_txt_path=row["transcript_txt_path"] or "",
+        transcript_json_path=row["transcript_json_path"] or "",
+        highlighted_text=highlighted_text,
+        match_source=match_source,
+    )
+
+
+def search_opensearch(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[SearchHit]:
     client = _ctx().search_backend()
-    merged: dict[str, dict] = {}
+    merged: dict[str, SearchHit] = {}
     variants = query_variants(query) if query.strip() else [""]
 
     for variant in variants:
         result = client.search(OPENSEARCH_SEGMENTS_INDEX, opensearch_query_body(variant, meeting_id, term, limit))
         for raw_hit in result.get("hits", {}).get("hits", []):
-            hit = dict(raw_hit.get("_source") or {})
-            hit_id = hit.get("id") or raw_hit.get("_id")
+            source = dict(raw_hit.get("_source") or {})
+            hit_id = source.get("id") or raw_hit.get("_id")
             if not hit_id or hit_id in merged:
                 continue
-            hit["id"] = hit_id
             highlights = raw_hit.get("highlight", {}).get("text") or []
-            if highlights:
-                hit["highlighted_text"] = highlights[0]
-            if variant != query.strip():
-                hit["match_source"] = f"expanded query: {variant}"
-            merged[hit_id] = hit
+            highlighted_text = highlights[0] if highlights else ""
+            match_source = f"expanded query: {variant}" if variant != query.strip() else ""
+            merged[hit_id] = _hit_from_source(
+                source, hit_id, raw_hit.get("_score"), highlighted_text, match_source
+            )
         if len(merged) >= limit:
             break
 
     hits = list(merged.values())[:limit]
     if query.strip() and len(hits) < limit:
-        seen = {hit.get("id") for hit in hits}
+        seen = {hit.id for hit in hits}
         strict_fuzzy_hits = search_sqlite_fuzzy(query, meeting_id, term, limit)
         for hit in strict_fuzzy_hits:
-            if hit.get("id") in seen:
+            if hit.id in seen:
                 continue
             hits.append(hit)
-            seen.add(hit.get("id"))
+            seen.add(hit.id)
             if len(hits) >= limit:
                 break
     return hits
 
 
-def search_sqlite_fts(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[dict]:
+def search_sqlite_fts(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[SearchHit]:
     conn = db_conn()
     params: list[object] = []
     where = []
@@ -406,11 +467,18 @@ def search_sqlite_fts(query: str, meeting_id: str | None, term: str | None, limi
         params.append(f'%"{term}"%')
 
     where_sql = "WHERE " + " AND ".join(where) if where else ""
-    order_sql = "ORDER BY bm25(segment_fts)" if query.strip() else "ORDER BY m.meeting_date, s.start_sec"
+    if query.strip():
+        # bm25() is only valid when the query uses a MATCH clause on the FTS table.
+        score_sql = "bm25(segment_fts) AS score"
+        order_sql = "ORDER BY bm25(segment_fts)"
+    else:
+        score_sql = "0.0 AS score"
+        order_sql = "ORDER BY m.meeting_date, s.start_sec"
     sql = f"""
         SELECT
             s.id, s.meeting_id, s.segment_index, s.start_sec, s.end_sec, s.text, s.terms,
-            m.title, m.meeting_date, m.source_path, m.transcript_txt_path, m.transcript_json_path
+            m.title, m.meeting_date, m.source_path, m.transcript_txt_path, m.transcript_json_path,
+            {score_sql}
         FROM segment_fts
         JOIN segments s ON s.id = segment_fts.segment_id
         JOIN meetings m ON m.id = s.meeting_id
@@ -420,20 +488,10 @@ def search_sqlite_fts(query: str, meeting_id: str | None, term: str | None, limi
     """
     params.append(limit)
     rows = conn.execute(sql, params).fetchall()
-    hits = []
-    for row in rows:
-        hit = dict(row)
-        try:
-            hit["terms"] = json.loads(hit.get("terms") or "[]")
-        except json.JSONDecodeError:
-            hit["terms"] = []
-        hit["start_label"] = seconds_label(hit["start_sec"])
-        hit["end_label"] = seconds_label(hit["end_sec"])
-        hits.append(hit)
-    return hits
+    return [_hit_from_row(row, score=row["score"]) for row in rows]
 
 
-def search_sqlite_fuzzy(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[dict]:
+def search_sqlite_fuzzy(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[SearchHit]:
     conn = db_conn()
     params: list[object] = []
     where = []
@@ -461,37 +519,34 @@ def search_sqlite_fuzzy(query: str, meeting_id: str | None, term: str | None, li
         matched, score, matched_tokens = fuzzy_match_query(query, row["text"])
         if not matched:
             continue
-        hit = dict(row)
-        try:
-            hit["terms"] = json.loads(hit.get("terms") or "[]")
-        except json.JSONDecodeError:
-            hit["terms"] = []
-        hit["start_label"] = seconds_label(hit["start_sec"])
-        hit["end_label"] = seconds_label(hit["end_sec"])
-        hit["highlighted_text"] = highlight_fuzzy(hit["text"], matched_tokens)
-        hit["match_source"] = "fuzzy/transliteration"
-        scored.append((score, hit["meeting_date"] or "", hit["start_sec"], hit))
+        hit = _hit_from_row(
+            row,
+            score=float(score),
+            highlighted_text=highlight_fuzzy(row["text"], matched_tokens),
+            match_source="fuzzy/transliteration",
+        )
+        scored.append((score, hit.meeting_date or "", hit.start_sec, hit))
 
     scored.sort(key=lambda item: (-item[0], item[1], item[2]))
     return [hit for _, _, _, hit in scored[:limit]]
 
 
-def search_sqlite(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[dict]:
-    merged: dict[str, dict] = {}
+def search_sqlite(query: str, meeting_id: str | None, term: str | None, limit: int) -> list[SearchHit]:
+    merged: dict[str, SearchHit] = {}
     variants = query_variants(query) if query.strip() else [""]
     for variant in variants:
         for hit in search_sqlite_fts(variant, meeting_id, term, limit):
-            hit_id = hit.get("id")
+            hit_id = hit.id
             if hit_id and hit_id not in merged:
                 if variant != query.strip():
-                    hit["match_source"] = f"expanded query: {variant}"
+                    hit = replace(hit, match_source=f"expanded query: {variant}")
                 merged[hit_id] = hit
         if len(merged) >= limit:
             break
 
     if query.strip() and len(merged) < limit:
         for hit in search_sqlite_fuzzy(query, meeting_id, term, limit):
-            hit_id = hit.get("id")
+            hit_id = hit.id
             if hit_id and hit_id not in merged:
                 merged[hit_id] = hit
             if len(merged) >= limit:
@@ -515,9 +570,9 @@ def format_context_text(segments: list[dict], format_name: str) -> str:
     return " ".join(segment["text"].strip() for segment in segments if segment["text"].strip())
 
 
-def context_block(hit: dict, key: str) -> None:
-    meeting_id = hit.get("meeting_id")
-    segment_index = hit.get("segment_index")
+def context_block(hit: SearchHit, key: str) -> None:
+    meeting_id = hit.meeting_id
+    segment_index = hit.segment_index
     if meeting_id is None or segment_index is None:
         st.caption("No transcript context for this segment.")
         return
@@ -597,10 +652,10 @@ def _root_relative_url(base: str, path: str) -> str | None:
     return base + "/" + urllib.parse.quote(rel)
 
 
-def render_video(hit: dict, height: int = 360) -> None:
+def render_video(hit: SearchHit, height: int = 360) -> None:
     """Embed the Plyr player (via the local media server) with a hover scrub preview."""
-    source_path = str(hit.get("source_path") or "")
-    start = int(float(hit.get("start_sec") or 0))
+    source_path = str(hit.source_path or "")
+    start = int(float(hit.start_sec or 0))
     base = media_base_url()
     video_url = _root_relative_url(base, source_path)
     if not video_url:
@@ -608,15 +663,15 @@ def render_video(hit: dict, height: int = 360) -> None:
         st.video(source_path, format=video_format(Path(source_path)), start_time=start)
         return
     params = {"video": video_url, "start": str(start)}
-    meeting_id = str(hit.get("meeting_id") or "")
+    meeting_id = str(hit.meeting_id or "")
     if meeting_id and thumbnails.has_thumbnails(Path(ROOT_DIR), meeting_id):
         params["vtt"] = base + "/" + urllib.parse.quote(f"thumbs/{meeting_id}/storyboard.vtt")
     player_url = base + "/assets/player.html?" + urllib.parse.urlencode(params)
     st.components.v1.iframe(player_url, height=height, scrolling=False)
 
 
-def theater_button(hit: dict, key: str, where: str) -> None:
-    hit_id = hit.get("id") or key
+def theater_button(hit: SearchHit, key: str, where: str) -> None:
+    hit_id = hit.id or key
     st.button(
         "⛶ Theater",
         key=f"theater_{where}_{key}",
@@ -625,23 +680,23 @@ def theater_button(hit: dict, key: str, where: str) -> None:
     )
 
 
-def result_block(hit: dict, layout: str) -> None:
-    title = hit.get("title") or hit.get("meeting_id") or ""
-    start_label = hit.get("start_label") or seconds_label(hit.get("start_sec"))
-    end_label = hit.get("end_label") or seconds_label(hit.get("end_sec"))
-    text = hit.get("highlighted_text") or hit.get("text") or ""
-    date = hit.get("meeting_date") or ""
-    key = stable_key(hit.get("id") or f"{hit.get('meeting_id')}_{hit.get('segment_index')}")
+def result_block(hit: SearchHit, layout: str) -> None:
+    title = hit.title or hit.meeting_id or ""
+    start_label = hit.start_label or seconds_label(hit.start_sec)
+    end_label = hit.end_label or seconds_label(hit.end_sec)
+    text = hit.highlighted_text or hit.text or ""
+    date = hit.meeting_date or ""
+    key = stable_key(hit.id or f"{hit.meeting_id}_{hit.segment_index}")
 
-    source_path = hit.get("source_path")
+    source_path = hit.source_path
     has_video = bool(source_path and Path(source_path).exists())
 
     with st.container(border=True):
         st.markdown(_card_head_html(title, start_label, end_label, date), unsafe_allow_html=True)
-        _render_terms(hit.get("terms") or [])
+        _render_terms(hit.terms or [])
         st.markdown(f'<div class="kb-snippet">{text}</div>', unsafe_allow_html=True)
 
-        match_source = hit.get("match_source")
+        match_source = hit.match_source
         if match_source:
             st.markdown(f'<div class="kb-note">matched via {html.escape(str(match_source))}</div>',
                         unsafe_allow_html=True)
@@ -670,19 +725,19 @@ def result_block(hit: dict, layout: str) -> None:
             render_files(hit)
 
 
-def render_theater(hit: dict) -> None:
-    title = hit.get("title") or hit.get("meeting_id") or ""
-    start_label = hit.get("start_label") or seconds_label(hit.get("start_sec"))
-    end_label = hit.get("end_label") or seconds_label(hit.get("end_sec"))
-    date = hit.get("meeting_date") or ""
-    key = stable_key(hit.get("id") or f"{hit.get('meeting_id')}_{hit.get('segment_index')}")
-    source_path = hit.get("source_path")
+def render_theater(hit: SearchHit) -> None:
+    title = hit.title or hit.meeting_id or ""
+    start_label = hit.start_label or seconds_label(hit.start_sec)
+    end_label = hit.end_label or seconds_label(hit.end_sec)
+    date = hit.meeting_date or ""
+    key = stable_key(hit.id or f"{hit.meeting_id}_{hit.segment_index}")
+    source_path = hit.source_path
     has_video = bool(source_path and Path(source_path).exists())
 
     st.button("← Back to results", key="theater_back",
               on_click=lambda: st.session_state.update(focus=None))
     st.markdown(_card_head_html(title, start_label, end_label, date), unsafe_allow_html=True)
-    _render_terms(hit.get("terms") or [])
+    _render_terms(hit.terms or [])
 
     if has_video:
         render_video(hit, height=800)  # fills the page in theater mode
@@ -694,7 +749,7 @@ def render_theater(hit: dict) -> None:
         context_block(hit, key)
 
 
-def render_files(hit: dict) -> None:
+def render_files(hit: SearchHit) -> None:
     rows = [
         ("Video", "source_path"),
         ("Transcript TXT", "transcript_txt_path"),
@@ -702,7 +757,7 @@ def render_files(hit: dict) -> None:
     ]
     shown = False
     for label, field in rows:
-        path = hit.get(field)
+        path = getattr(hit, field)
         if path:
             shown = True
             st.caption(label)
@@ -749,7 +804,7 @@ def render_sidebar(meetings: list[dict], available: bool) -> str:
     return layout or "Stacked"
 
 
-def run_search(query: str, meeting_id: str | None, term: str | None, limit: int, available: bool) -> list[dict]:
+def run_search(query: str, meeting_id: str | None, term: str | None, limit: int, available: bool) -> list[SearchHit]:
     try:
         if available:
             return search_opensearch(query, meeting_id, term, limit)
@@ -845,8 +900,10 @@ def render_rag_mode(
     if st.button("Ask LLM", type="primary", disabled=disabled):
         with st.spinner("Retrieving transcript context..."):
             hits = run_search(query, meeting_id, selected_term, int(rag_limit), available)
+            # `build_context_documents` (the RAG segment_loader flow) consumes plain
+            # dict hits, so adapt the typed SearchHit results back to dicts here.
             documents = build_context_documents(
-                hits,
+                [asdict(hit) for hit in hits],
                 load_context_segments,
                 before=int(rag_before),
                 after=int(rag_after),
@@ -971,7 +1028,7 @@ def main() -> None:
 
     focus = st.session_state.get("focus")
     if focus:
-        focused = next((h for h in hits if str(h.get("id")) == str(focus)), None)
+        focused = next((h for h in hits if str(h.id) == str(focus)), None)
         if focused is not None:
             render_theater(focused)
             return

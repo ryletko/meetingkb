@@ -16,8 +16,24 @@ def test_searchhit_fields():
     hit = SearchHit(id="m1_00001", meeting_id="m1", title="T", meeting_date="2026-01-01",
                     source_path="/x.webm", segment_index=1, start_sec=0.0, end_sec=5.0,
                     start_label="00:00:00", end_label="00:00:05", text="hi",
-                    terms=["Alpha"], score=1.0)
+                    terms=["Alpha"], score=1.0,
+                    transcript_txt_path="/x.txt", transcript_json_path="/x.json",
+                    highlighted_text="<mark>hi</mark>", match_source="fuzzy/transliteration")
     assert hit.score == 1.0
+    assert hit.transcript_txt_path == "/x.txt"
+    assert hit.transcript_json_path == "/x.json"
+    assert hit.highlighted_text == "<mark>hi</mark>"
+    assert hit.match_source == "fuzzy/transliteration"
+
+
+def test_searchhit_optional_fields_default_empty():
+    hit = SearchHit(id="m1_00001", meeting_id="m1", title="T", meeting_date="2026-01-01",
+                    source_path="/x.webm", segment_index=1, start_sec=0.0, end_sec=5.0,
+                    start_label="00:00:00", end_label="00:00:05", text="hi",
+                    terms=["Alpha"], score=1.0,
+                    transcript_txt_path="/x.txt", transcript_json_path="/x.json")
+    assert hit.highlighted_text == ""
+    assert hit.match_source == ""
 
 
 def test_meeting_defaults():
