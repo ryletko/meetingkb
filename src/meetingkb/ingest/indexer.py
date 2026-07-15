@@ -151,7 +151,7 @@ def index_sqlite(
         )
 
         all_segments = segments_from_whisper(meeting_id, data)
-        duration_sec = max((s.end_sec for s in all_segments), default=0.0)
+        duration_sec = max((float(s.get("end", 0.0)) for s in raw_segments), default=0.0)
         term_counts, first_seen = _count_meeting_terms(all_segments, patterns)
         all_terms = sorted(term_counts)
 
@@ -203,7 +203,7 @@ def index_sqlite(
         for segment in all_segments:
             if not segment.text.strip():
                 continue
-            terms = detect_terms(segment.text, settings.terms)
+            terms = _detect_terms(segment.text, patterns)
             segment = replace(segment, terms=terms)
             terms_json = json.dumps(segment.terms, ensure_ascii=False)
             conn.execute(

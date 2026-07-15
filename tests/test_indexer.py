@@ -55,6 +55,23 @@ def test_build_index_skips_empty_segment_preserves_index_gap(tmp_path):
     assert segment_indices == [0, 2]
 
 
+def test_build_index_duration_sec_ignores_missing_end_default(tmp_path):
+    tdir = tmp_path / "transcripts"
+    _write_transcript(
+        tdir,
+        "Standup 04.02.2026 09-00-00",
+        [
+            {"start": 0.0, "end": 3.0, "text": "Alpha ready"},
+            {"start": 5.0, "text": "Beta has no end key"},
+        ],
+    )
+    settings = Settings(data_dir=tmp_path)
+    build_index(settings, use_opensearch=False)
+    conn = connect(settings.db_path)
+    duration_sec = conn.execute("SELECT duration_sec FROM meetings").fetchone()[0]
+    assert duration_sec == 3.0
+
+
 def test_index_sqlite_doc_shapes(tmp_path):
     tdir = tmp_path / "transcripts"
     _write_transcript(tdir, "Standup 03.02.2026 09-00-00",
