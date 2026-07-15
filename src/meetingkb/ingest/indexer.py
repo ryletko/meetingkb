@@ -8,6 +8,7 @@ module-level constants.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from collections import Counter
@@ -23,6 +24,8 @@ from meetingkb.ingest.transcripts import (
 )
 from meetingkb.search.opensearch_backend import OpenSearchClient
 from meetingkb.search.storage import connect, init_db
+
+logger = logging.getLogger(__name__)
 
 
 def find_source(root: Path, stem: str, media_extensions: frozenset[str]) -> Path | None:
@@ -262,6 +265,10 @@ def index_opensearch(
 ) -> bool:
     client = OpenSearchClient(settings.opensearch_url)
     if not client.available():
+        logger.warning(
+            "OpenSearch is not available at %s; skipped OpenSearch indexing",
+            settings.opensearch_url,
+        )
         return False
 
     client.update_cluster_settings(
