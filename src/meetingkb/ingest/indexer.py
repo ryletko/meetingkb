@@ -12,6 +12,7 @@ import logging
 import re
 import sqlite3
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +20,11 @@ from meetingkb.config import Settings
 from meetingkb.ingest.transcripts import (
     load_whisper_json,
     parse_meeting_date,
+    segments_from_whisper,
     slugify,
     timestamp_label,
 )
+from meetingkb.models import Meeting, Segment
 from meetingkb.search.opensearch_backend import OpenSearchClient
 from meetingkb.search.storage import connect, init_db
 
@@ -57,15 +60,14 @@ def detect_terms(text: str, terms: list[str]) -> list[str]:
 
 
 def _count_meeting_terms(
-    segments: list[dict[str, Any]], patterns: dict[str, list[re.Pattern[str]]]
+    segments: list[Segment], patterns: dict[str, list[re.Pattern[str]]]
 ) -> tuple[Counter[str], dict[str, float]]:
     counts: Counter[str] = Counter()
     first_seen: dict[str, float] = {}
     for segment in segments:
-        text = segment.get("text", "")
-        for term in _detect_terms(text, patterns):
+        for term in _detect_terms(segment.text, patterns):
             counts[term] += 1
-            first_seen.setdefault(term, float(segment.get("start", 0.0)))
+            first_seen.setdefault(term, segment.start_sec)
     return counts, first_seen
 
 
@@ -75,6 +77,49 @@ def reset_sqlite(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM segments")
     conn.execute("DELETE FROM meetings")
     conn.commit()
+
+
+def _meeting_doc(meeting: Meeting, terms: list[str]) -> dict[str, Any]:
+    """Serialize a `Meeting` to the OpenSearch/legacy dict shape (unchanged keys)."""
+    return {
+        "id": meeting.id,
+        "title": meeting.title,
+        "meeting_date": meeting.meeting_date,
+        "source_path": meeting.source_path,
+        "transcript_json_path": meeting.transcript_json_path,
+        "transcript_txt_path": meeting.transcript_txt_path,
+        "duration_sec": meeting.duration_sec,
+        "duration_label": timestamp_label(meeting.duration_sec),
+        "language": meeting.language,
+        "model": meeting.model,
+        "segment_count": meeting.segment_count,
+        "term_count": meeting.term_count,
+        "terms": terms,
+        "term_text": " ".join(terms),
+    }
+
+
+def _segment_doc(segment: Segment, meeting: Meeting) -> dict[str, Any]:
+    """Serialize a `Segment` (+ owning `Meeting`) to the OpenSearch/legacy dict shape."""
+    return {
+        "id": segment.id,
+        "meeting_id": segment.meeting_id,
+        "title": meeting.title,
+        "meeting_date": meeting.meeting_date,
+        "source_path": meeting.source_path,
+        "transcript_json_path": meeting.transcript_json_path,
+        "transcript_txt_path": meeting.transcript_txt_path,
+        "segment_index": segment.segment_index,
+        "start_sec": segment.start_sec,
+        "end_sec": segment.end_sec,
+        "start_label": timestamp_label(segment.start_sec),
+        "end_label": timestamp_label(segment.end_sec),
+        "duration_sec": max(0.0, segment.end_sec - segment.start_sec),
+        "text": segment.text,
+        "terms": segment.terms,
+        "term_text": " ".join(segment.terms),
+        "model": meeting.model,
+    }
 
 
 def index_sqlite(
@@ -92,8 +137,8 @@ def index_sqlite(
 
     for json_path in json_paths:
         data = load_whisper_json(json_path)
-        segments = data.get("segments", [])
-        if not isinstance(segments, list):
+        raw_segments = data.get("segments", [])
+        if not isinstance(raw_segments, list):
             continue
 
         stem = json_path.stem
@@ -104,9 +149,25 @@ def index_sqlite(
         meeting_date = parse_meeting_date(
             stem, source_path.stat().st_mtime if source_path else json_path.stat().st_mtime
         )
-        duration_sec = max((float(s.get("end", 0.0)) for s in segments), default=0.0)
-        term_counts, first_seen = _count_meeting_terms(segments, patterns)
+
+        all_segments = segments_from_whisper(meeting_id, data)
+        duration_sec = max((s.end_sec for s in all_segments), default=0.0)
+        term_counts, first_seen = _count_meeting_terms(all_segments, patterns)
         all_terms = sorted(term_counts)
+
+        meeting = Meeting(
+            id=meeting_id,
+            title=title,
+            meeting_date=meeting_date,
+            source_path=str(source_path) if source_path else None,
+            transcript_json_path=str(json_path),
+            transcript_txt_path=str(txt_path) if txt_path.exists() else None,
+            duration_sec=duration_sec,
+            language=data.get("language"),
+            model=model,
+            segment_count=len(all_segments),
+            term_count=sum(term_counts.values()),
+        )
 
         conn.execute(
             """
@@ -117,17 +178,17 @@ def index_sqlite(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
-                meeting_id,
-                title,
-                meeting_date,
-                str(source_path) if source_path else None,
-                str(json_path),
-                str(txt_path) if txt_path.exists() else None,
-                duration_sec,
-                data.get("language"),
-                model,
-                len(segments),
-                sum(term_counts.values()),
+                meeting.id,
+                meeting.title,
+                meeting.meeting_date,
+                meeting.source_path,
+                meeting.transcript_json_path,
+                meeting.transcript_txt_path,
+                meeting.duration_sec,
+                meeting.language,
+                meeting.model,
+                meeting.segment_count,
+                meeting.term_count,
             ),
         )
 
@@ -137,69 +198,43 @@ def index_sqlite(
                 (meeting_id, term, count, first_seen.get(term)),
             )
 
-        meeting_docs.append(
-            {
-                "id": meeting_id,
-                "title": title,
-                "meeting_date": meeting_date,
-                "source_path": str(source_path) if source_path else None,
-                "transcript_json_path": str(json_path),
-                "transcript_txt_path": str(txt_path) if txt_path.exists() else None,
-                "duration_sec": duration_sec,
-                "duration_label": timestamp_label(duration_sec),
-                "language": data.get("language"),
-                "model": model,
-                "segment_count": len(segments),
-                "term_count": sum(term_counts.values()),
-                "terms": all_terms,
-                "term_text": " ".join(all_terms),
-            }
-        )
+        meeting_docs.append(_meeting_doc(meeting, all_terms))
 
-        for idx, segment in enumerate(segments):
-            text = str(segment.get("text", "")).strip()
-            if not text:
+        for segment in all_segments:
+            if not segment.text.strip():
                 continue
-            start_sec = float(segment.get("start", 0.0))
-            end_sec = float(segment.get("end", start_sec))
-            segment_id = f"{meeting_id}_{idx:05d}"
-            terms = _detect_terms(text, patterns)
-            terms_json = json.dumps(terms, ensure_ascii=False)
+            terms = detect_terms(segment.text, settings.terms)
+            segment = replace(segment, terms=terms)
+            terms_json = json.dumps(segment.terms, ensure_ascii=False)
             conn.execute(
                 """
                 INSERT INTO segments(id, meeting_id, segment_index, start_sec, end_sec, text, terms)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (segment_id, meeting_id, idx, start_sec, end_sec, text, terms_json),
+                (
+                    segment.id,
+                    segment.meeting_id,
+                    segment.segment_index,
+                    segment.start_sec,
+                    segment.end_sec,
+                    segment.text,
+                    terms_json,
+                ),
             )
             conn.execute(
                 """
                 INSERT INTO segment_fts(segment_id, meeting_id, title, text, terms)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (segment_id, meeting_id, title, text, " ".join(terms)),
+                (
+                    segment.id,
+                    segment.meeting_id,
+                    meeting.title,
+                    segment.text,
+                    " ".join(segment.terms),
+                ),
             )
-            segment_docs.append(
-                {
-                    "id": segment_id,
-                    "meeting_id": meeting_id,
-                    "title": title,
-                    "meeting_date": meeting_date,
-                    "source_path": str(source_path) if source_path else None,
-                    "transcript_json_path": str(json_path),
-                    "transcript_txt_path": str(txt_path) if txt_path.exists() else None,
-                    "segment_index": idx,
-                    "start_sec": start_sec,
-                    "end_sec": end_sec,
-                    "start_label": timestamp_label(start_sec),
-                    "end_label": timestamp_label(end_sec),
-                    "duration_sec": max(0.0, end_sec - start_sec),
-                    "text": text,
-                    "terms": terms,
-                    "term_text": " ".join(terms),
-                    "model": model,
-                }
-            )
+            segment_docs.append(_segment_doc(segment, meeting))
 
     conn.commit()
     return meeting_docs, segment_docs

@@ -1,8 +1,8 @@
 import json
 
 from meetingkb.config import Settings
-from meetingkb.ingest.indexer import build_index, detect_terms
-from meetingkb.search.storage import connect
+from meetingkb.ingest.indexer import build_index, detect_terms, index_sqlite
+from meetingkb.search.storage import connect, init_db
 
 
 def test_detect_terms_uses_injected_list():
@@ -53,3 +53,31 @@ def test_build_index_skips_empty_segment_preserves_index_gap(tmp_path):
         )
     ]
     assert segment_indices == [0, 2]
+
+
+def test_index_sqlite_doc_shapes(tmp_path):
+    tdir = tmp_path / "transcripts"
+    _write_transcript(tdir, "Standup 03.02.2026 09-00-00",
+                      [{"start": 0.0, "end": 3.0, "text": "Alpha is ready"}])
+    settings = Settings(data_dir=tmp_path)
+    conn = connect(settings.db_path)
+    init_db(conn)
+    try:
+        meeting_docs, segment_docs = index_sqlite(conn, settings)
+    finally:
+        conn.close()
+
+    assert len(meeting_docs) == 1
+    assert set(meeting_docs[0].keys()) == {
+        "id", "title", "meeting_date", "source_path", "transcript_json_path",
+        "transcript_txt_path", "duration_sec", "duration_label", "language",
+        "model", "segment_count", "term_count", "terms", "term_text",
+    }
+
+    assert len(segment_docs) == 1
+    assert set(segment_docs[0].keys()) == {
+        "id", "meeting_id", "title", "meeting_date", "source_path",
+        "transcript_json_path", "transcript_txt_path", "segment_index",
+        "start_sec", "end_sec", "start_label", "end_label", "duration_sec",
+        "text", "terms", "term_text", "model",
+    }
