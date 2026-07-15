@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     db_path: Path | None = None
 
     opensearch_url: str = "http://127.0.0.1:9200"
+    opensearch_enabled: bool = True
     os_meetings_index: str = "meetingkb_meetings"
     os_segments_index: str = "meetingkb_segments"
 

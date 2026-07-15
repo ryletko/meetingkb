@@ -32,7 +32,11 @@ class AppContext:
         return self._search_backend
 
     def opensearch_available(self) -> bool:
-        return self.search_backend().available()
+        # `opensearch_enabled=False` (KB_OPENSEARCH_ENABLED=false) forces
+        # SQLite-only serving even if an OpenSearch happens to be reachable --
+        # otherwise a stale pre-existing OpenSearch index could override a
+        # freshly-rebuilt SQLite index built via `kb index --no-opensearch`.
+        return self.settings.opensearch_enabled and self.search_backend().available()
 
     def search_service(self) -> SearchService:
         if self._search_service is None:

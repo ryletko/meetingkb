@@ -7,9 +7,11 @@ static server on 127.0.0.1 instead. Range support is required for video seeking.
 
 The server root is `data_dir`, which also holds `knowledge.sqlite` and raw
 transcript files (`.json`/`.srt`/`.tsv`/`.txt`/`.vtt`) -- none of that is meant
-to be web-reachable. `_resolve()` therefore allowlists what it will serve:
-only `assets/`, `thumbs/`, and files with a playable-media or player-asset
-extension. Everything else gets a 403.
+to be web-reachable. `_resolve()` therefore allowlists what it will serve, and
+the allowlist is path-specific: `assets/` only serves player-asset extensions,
+`thumbs/` only serves storyboard extensions (including `.vtt`), and everything
+else only serves playable-media extensions. Everything not matching gets a
+403, even inside `assets/`/`thumbs/` (e.g. a planted `.json`/`.sqlite` there).
 """
 from __future__ import annotations
 
@@ -38,17 +40,17 @@ _EXT = {
     ".json": "application/json",
 }
 
-# Playable video/audio extensions (recordings) -- served from anywhere under root.
+# Playable video/audio extensions (recordings) -- served from top-level paths
+# that are not under assets/ or thumbs/.
 _MEDIA_EXT = MEDIA_EXTENSIONS
 
-# Player/thumbnail asset extensions -- served from anywhere under root (in
-# practice these only live under assets/ and thumbs/, but the extension check
-# is enough to keep the allowlist simple and to keep those two paths working).
-_ASSET_EXT = frozenset({".html", ".css", ".js", ".svg", ".jpg", ".jpeg", ".png", ".vtt"})
+# Player-asset extensions -- served ONLY under assets/.
+_ASSETS_EXT = frozenset({".html", ".css", ".js", ".svg", ".jpg", ".jpeg", ".png"})
 
-# Directories that are always safe to serve in full (assets copied from the
-# package, and generated thumbnail sprites/VTTs).
-_ALLOWED_DIRS = ("assets", "thumbs")
+# Thumbnail/storyboard extensions -- served ONLY under thumbs/. `.vtt` is
+# intentionally scoped here (storyboard captions) rather than allowed anywhere,
+# so a raw transcript named `*.vtt` elsewhere is still rejected.
+_THUMBS_EXT = frozenset({".jpg", ".jpeg", ".png", ".vtt"})
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
@@ -80,10 +82,18 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         return path
 
     def _is_allowed(self, path: str) -> bool:
-        """Allowlist: assets/, thumbs/, or a playable-media/player-asset extension.
+        """Path-specific allowlist.
 
-        Blocks everything else under the server root -- notably
-        knowledge.sqlite and raw transcript files (.json/.srt/.tsv/.txt).
+        - `assets/*`: only player-asset extensions (.html/.css/.js/.svg/.jpg/.jpeg/.png).
+        - `thumbs/*`: only storyboard extensions (.jpg/.jpeg/.png/.vtt).
+        - anything else directly under root: only playable-media extensions.
+
+        This means `.vtt` is served ONLY under `thumbs/`, and `.json`/`.srt`/
+        `.tsv`/`.txt`/`.sqlite` are rejected everywhere -- including inside
+        assets/ or thumbs/ (e.g. a planted `thumbs/knowledge.sqlite` or
+        `assets/x.json` is rejected). Real paths are resolved (symlinks
+        followed) before the containment check, so a symlink under root that
+        points outside of it is rejected too.
         """
         root = os.path.abspath(self.directory)
         try:
@@ -91,12 +101,24 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         except ValueError:
             return False
         if rel.startswith("..") or os.path.isabs(rel):
-            return False  # escaped the server root
+            return False  # escaped the server root (defense in depth)
+
+        real_root = os.path.realpath(root)
+        real_path = os.path.realpath(path)
+        try:
+            real_rel = os.path.relpath(real_path, real_root)
+        except ValueError:
+            return False
+        if real_rel.startswith("..") or os.path.isabs(real_rel):
+            return False  # symlink escapes the server root
+
         rel_parts = Path(rel).parts
-        if rel_parts and rel_parts[0] in _ALLOWED_DIRS:
-            return True
         ext = os.path.splitext(path)[1].lower()
-        return ext in _MEDIA_EXT or ext in _ASSET_EXT
+        if rel_parts and rel_parts[0] == "assets":
+            return ext in _ASSETS_EXT
+        if rel_parts and rel_parts[0] == "thumbs":
+            return ext in _THUMBS_EXT
+        return ext in _MEDIA_EXT
 
     def do_HEAD(self) -> None:
         path = self._resolve()

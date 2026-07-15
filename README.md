@@ -152,7 +152,10 @@ the working directory), backed by `meetingkb.config.Settings`. Copy
 | Variable | Default | Description |
 | --- | --- | --- |
 | `KB_DATA_DIR` | `./data` | Root directory for media, transcripts, and the SQLite database. |
+| `KB_TRANSCRIPT_DIR` | *(derived)* | Directory holding transcript files. Defaults to `<data>/transcripts`; override to put transcripts on a separate disk. |
+| `KB_DB_PATH` | *(derived)* | Path to the SQLite database file. Defaults to `<data>/knowledge.sqlite`; override to put the database on a separate disk. |
 | `KB_OPENSEARCH_URL` | `http://127.0.0.1:9200` | OpenSearch endpoint used for full-text search. |
+| `KB_OPENSEARCH_ENABLED` | `true` | Whether `kb serve` may query OpenSearch at all. Set `false` to force SQLite-only search even if an OpenSearch instance is reachable -- useful after `kb index --no-opensearch`, so a stale pre-existing OpenSearch index can't override the freshly-rebuilt SQLite data. |
 | `KB_LANGUAGE` | `en` | Language hint passed to the transcriber. |
 | `KB_TERMS_FILE` | *(none)* | Path to a file of glossary terms (one per line) to detect per meeting. |
 | `KB_LLM_BASE_URL` | `http://127.0.0.1:11434/v1` | Base URL of an OpenAI-compatible chat endpoint (e.g. Ollama, vLLM). |
@@ -163,8 +166,9 @@ the working directory), backed by `meetingkb.config.Settings`. Copy
 | `KB_WHISPER_DEVICE` | `auto` | Device for transcription: `auto`, `cpu`, or `cuda`. |
 | `KB_INITIAL_PROMPT` | *(empty)* | Optional Whisper initial prompt (e.g. to bias vocabulary). |
 
-`transcript_dir` and `db_path` are derived from `KB_DATA_DIR` when not set
-explicitly, and are not meant to be overridden independently in normal use.
+`KB_TRANSCRIPT_DIR` and `KB_DB_PATH` default to living under `KB_DATA_DIR`,
+but each is intentionally independently overridable -- e.g. to put the
+database on a separate (faster or larger) disk from the transcripts.
 
 ## CLI reference
 
