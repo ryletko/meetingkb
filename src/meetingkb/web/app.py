@@ -23,7 +23,7 @@ from meetingkb.rag.context import build_context_documents, build_rag_messages
 from meetingkb.search.opensearch_backend import OpenSearchClient, OpenSearchError
 from meetingkb.search.query import fuzzy_match_query, highlight_fuzzy, query_variants
 from meetingkb.search.storage import connect
-from meetingkb.web.assets import ensure_player_asset
+from meetingkb.web.asset_utils import ensure_player_asset
 from meetingkb.web.media_server import start_media_server
 
 # All runtime configuration comes from Settings; shadow the former module-level
