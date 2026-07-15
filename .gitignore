@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# MeetingKB data (never commit personal meeting data)
+/data/
+*.sqlite
+*.sqlite-*
+thumbs/
+opensearch_data/
+meili_data/
+
+# Media & transcripts
+*.webm
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.m4a
+*.mp3
+*.wav
+
+# Logs / scratch / screenshots
+*.log
+.playwright-mcp/
+/scratch/
+
+# Env
+.env

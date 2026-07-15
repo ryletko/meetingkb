@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meetingkb"
+version = "0.1.0"
+description = "Local knowledge base for meeting recordings: transcribe, index, search, and ask."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "MeetingKB contributors" }]
+keywords = ["meetings", "transcription", "search", "rag", "whisper", "opensearch"]
+dependencies = [
+    "streamlit>=1.36",
+    "requests>=2.31",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+transcribe = ["faster-whisper>=1.0"]
+dev = ["pytest>=8.0", "ruff>=0.5", "playwright>=1.44"]
+
+[project.scripts]
+kb = "meetingkb.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/OWNER/meetingkb"
+Repository = "https://github.com/OWNER/meetingkb"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meetingkb"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: needs OpenSearch/GPU/ffmpeg/LLM (excluded by default)"]
+addopts = "-m 'not integration'"
