@@ -72,6 +72,9 @@ def _count_meeting_terms(
 
 
 def reset_sqlite(conn: sqlite3.Connection) -> None:
+    # Full in-place rebuild: wipes every row before index_sqlite() repopulates
+    # them. Not transactional/atomic across a failure mid-rebuild -- this is a
+    # single-user batch tool, so on failure the fix is to re-run `kb index`.
     conn.execute("DELETE FROM segment_fts")
     conn.execute("DELETE FROM terms")
     conn.execute("DELETE FROM segments")
@@ -314,6 +317,9 @@ def index_opensearch(
             }
         }
     )
+    # Same full-rebuild contract as reset_sqlite(): delete + recreate is not
+    # atomic, so a failure partway through (e.g. after delete, before
+    # bulk_index completes) leaves a partial index -- re-run `kb index` to fix.
     client.delete_index(settings.os_meetings_index)
     client.delete_index(settings.os_segments_index)
     client.create_index(settings.os_meetings_index, meetings_mapping())

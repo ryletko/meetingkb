@@ -350,6 +350,7 @@ def opensearch_query_body(query: str, meeting_id: str | None, term: str | None, 
         "highlight": {
             "pre_tags": ["<mark>"],
             "post_tags": ["</mark>"],
+            "encoder": "html",
             "fields": {"text": {"number_of_fragments": 0}},
         },
         "sort": sort,
@@ -463,8 +464,8 @@ def search_sqlite_fts(query: str, meeting_id: str | None, term: str | None, limi
         where.append("s.meeting_id = ?")
         params.append(meeting_id)
     if term:
-        where.append("s.terms LIKE ?")
-        params.append(f'%"{term}"%')
+        where.append("EXISTS (SELECT 1 FROM json_each(s.terms) WHERE value = ?)")
+        params.append(term)
 
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     if query.strip():
@@ -499,8 +500,8 @@ def search_sqlite_fuzzy(query: str, meeting_id: str | None, term: str | None, li
         where.append("s.meeting_id = ?")
         params.append(meeting_id)
     if term:
-        where.append("s.terms LIKE ?")
-        params.append(f'%"{term}"%')
+        where.append("EXISTS (SELECT 1 FROM json_each(s.terms) WHERE value = ?)")
+        params.append(term)
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     rows = conn.execute(
         f"""
@@ -680,11 +681,23 @@ def theater_button(hit: SearchHit, key: str, where: str) -> None:
     )
 
 
+def snippet_html(hit: SearchHit) -> str:
+    """Return the safe-to-render HTML for a hit's transcript snippet.
+
+    `highlighted_text` is already safe HTML (fuzzy matches are escaped by
+    `highlight_fuzzy`; OpenSearch escapes via the `encoder: html` highlight
+    option) -- do not double-escape it. The raw `hit.text` fallback (used
+    when there is no highlight, e.g. the SQLite FTS path) is not HTML-safe
+    and must be escaped here.
+    """
+    return hit.highlighted_text or html.escape(str(hit.text or ""))
+
+
 def result_block(hit: SearchHit, layout: str) -> None:
     title = hit.title or hit.meeting_id or ""
     start_label = hit.start_label or seconds_label(hit.start_sec)
     end_label = hit.end_label or seconds_label(hit.end_sec)
-    text = hit.highlighted_text or hit.text or ""
+    text = snippet_html(hit)
     date = hit.meeting_date or ""
     key = stable_key(hit.id or f"{hit.meeting_id}_{hit.segment_index}")
 

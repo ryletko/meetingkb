@@ -63,6 +63,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _derive_paths(self) -> Settings:
+        # transcript_dir/db_path default to living under data_dir, but each is
+        # intentionally independently overridable via KB_TRANSCRIPT_DIR /
+        # KB_DB_PATH -- e.g. to put the database on a different disk.
         if self.transcript_dir is None:
             self.transcript_dir = self.data_dir / "transcripts"
         if self.db_path is None:

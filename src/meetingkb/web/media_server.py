@@ -4,6 +4,12 @@ Serves meeting videos, generated thumbnail sprites, and the Plyr player page to
 an <iframe>. Streamlit's own media server hashes URLs and cannot serve the extra
 thumbnail/VTT assets a real player needs, so we run a small, Range-capable
 static server on 127.0.0.1 instead. Range support is required for video seeking.
+
+The server root is `data_dir`, which also holds `knowledge.sqlite` and raw
+transcript files (`.json`/`.srt`/`.tsv`/`.txt`/`.vtt`) -- none of that is meant
+to be web-reachable. `_resolve()` therefore allowlists what it will serve:
+only `assets/`, `thumbs/`, and files with a playable-media or player-asset
+extension. Everything else gets a 403.
 """
 from __future__ import annotations
 
@@ -12,6 +18,8 @@ import os
 import threading
 from functools import partial
 from pathlib import Path
+
+from meetingkb.config import MEDIA_EXTENSIONS
 
 _EXT = {
     ".webm": "video/webm",
@@ -29,6 +37,18 @@ _EXT = {
     ".html": "text/html",
     ".json": "application/json",
 }
+
+# Playable video/audio extensions (recordings) -- served from anywhere under root.
+_MEDIA_EXT = MEDIA_EXTENSIONS
+
+# Player/thumbnail asset extensions -- served from anywhere under root (in
+# practice these only live under assets/ and thumbs/, but the extension check
+# is enough to keep the allowlist simple and to keep those two paths working).
+_ASSET_EXT = frozenset({".html", ".css", ".js", ".svg", ".jpg", ".jpeg", ".png", ".vtt"})
+
+# Directories that are always safe to serve in full (assets copied from the
+# package, and generated thumbnail sprites/VTTs).
+_ALLOWED_DIRS = ("assets", "thumbs")
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
@@ -54,7 +74,29 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if not os.path.isfile(path):
             self.send_error(404, "Not found")
             return None
+        if not self._is_allowed(path):
+            self.send_error(403, "Forbidden")
+            return None
         return path
+
+    def _is_allowed(self, path: str) -> bool:
+        """Allowlist: assets/, thumbs/, or a playable-media/player-asset extension.
+
+        Blocks everything else under the server root -- notably
+        knowledge.sqlite and raw transcript files (.json/.srt/.tsv/.txt).
+        """
+        root = os.path.abspath(self.directory)
+        try:
+            rel = os.path.relpath(os.path.abspath(path), root)
+        except ValueError:
+            return False
+        if rel.startswith("..") or os.path.isabs(rel):
+            return False  # escaped the server root
+        rel_parts = Path(rel).parts
+        if rel_parts and rel_parts[0] in _ALLOWED_DIRS:
+            return True
+        ext = os.path.splitext(path)[1].lower()
+        return ext in _MEDIA_EXT or ext in _ASSET_EXT
 
     def do_HEAD(self) -> None:
         path = self._resolve()

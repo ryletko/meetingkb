@@ -3,8 +3,8 @@ from meetingkb.rag.context import build_context_documents, build_rag_messages
 
 def _loader(meeting_id, idx, before, after):
     return [{"meeting_id": meeting_id, "segment_index": idx, "title": "T",
-             "meeting_date": "2026-01-01", "source_path": "/x.webm",
-             "transcript_txt_path": "/x.txt", "transcript_json_path": "/x.json",
+             "meeting_date": "2026-01-01", "source_path": "x.webm",
+             "transcript_txt_path": "x.txt", "transcript_json_path": "x.json",
              "start_label": "00:00:00", "end_label": "00:00:05",
              "start_sec": 0.0, "end_sec": 5.0, "text": "Alpha context"}]
 
