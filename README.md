@@ -182,6 +182,8 @@ the working directory), backed by `meetingkb.config.Settings`. Copy
 | `KB_WHISPER_MODEL` | `medium` | `faster-whisper` model size/name used for transcription. |
 | `KB_WHISPER_DEVICE` | `auto` | Device for transcription: `auto`, `cpu`, or `cuda`. |
 | `KB_INITIAL_PROMPT` | *(empty)* | Optional Whisper initial prompt (e.g. to bias vocabulary). |
+| `KB_AUTO_INGEST` | `false` | Opt-in background auto-ingest: while `kb serve` runs, new media dropped into `KB_DATA_DIR` are automatically transcribed, indexed, and thumbnailed, with status shown in the sidebar. Requires the `[transcribe]` extra (`faster-whisper`); the worker starts on first page load in the browser (there's no ingestion while no browser session is open). Off by default -- current behavior is unchanged. |
+| `KB_AUTO_INGEST_INTERVAL` | `60` | Seconds between auto-ingest scans (only relevant when `KB_AUTO_INGEST=true`). A new file is only picked up once its size is unchanged between two consecutive scans, so still-copying/still-recording files are skipped until stable. |
 
 `KB_TRANSCRIPT_DIR` and `KB_DB_PATH` default to living under `KB_DATA_DIR`,
 but each is intentionally independently overridable -- e.g. to put the

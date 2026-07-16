@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     ui_port: int = 8502
     media_extensions: frozenset[str] = MEDIA_EXTENSIONS
 
+    auto_ingest: bool = False
+    auto_ingest_interval: int = 60
+
     @model_validator(mode="after")
     def _derive_paths(self) -> Settings:
         # transcript_dir/db_path default to living under data_dir, but each is

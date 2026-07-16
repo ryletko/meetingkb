@@ -4,6 +4,7 @@ import html
 import json
 import re
 import sqlite3
+import threading
 import urllib.parse
 from dataclasses import asdict
 from pathlib import Path
@@ -13,6 +14,7 @@ import streamlit as st
 from meetingkb.config import get_settings
 from meetingkb.context import AppContext, build_context
 from meetingkb.ingest import thumbnails
+from meetingkb.ingest.watcher import AutoIngestWorker
 from meetingkb.models import RagDocument, SearchHit
 from meetingkb.rag.client import (
     LLMConfig,
@@ -32,6 +34,23 @@ ROOT_DIR = _settings.data_dir
 @st.cache_resource
 def _ctx() -> AppContext:
     return build_context()
+
+
+@st.cache_resource
+def _auto_ingest_worker() -> AutoIngestWorker | None:
+    """Start the background auto-ingest worker (once per server process).
+
+    Returns `None` when `KB_AUTO_INGEST` is off, so callers can skip
+    rendering anything -- zero UX change for the (default) opt-out case.
+    `st.cache_resource` guarantees a single worker/thread per server even
+    across reruns and sessions.
+    """
+    if not _settings.auto_ingest:
+        return None
+    worker = AutoIngestWorker(_ctx().settings, _ctx().transcriber())
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    return worker
 
 
 st.set_page_config(page_title="Meeting Knowledge Base", page_icon="◈", layout="wide")
@@ -528,6 +547,37 @@ def render_files(hit: SearchHit) -> None:
         st.caption("No files linked to this segment.")
 
 
+def render_auto_ingest_status() -> None:
+    """Sidebar status block for the background auto-ingest worker.
+
+    Renders nothing when `KB_AUTO_INGEST` is off (the default) -- zero UX
+    change for the opt-out case.
+    """
+    worker = _auto_ingest_worker()
+    if worker is None:
+        return
+
+    status = worker.status
+    state_labels = {
+        "idle": "Idle",
+        "transcribing": f"Transcribing {status.current_file or ''}".strip(),
+        "indexing": "Indexing",
+        "error": f"Error: {status.last_error or ''}".strip(),
+        "disabled": f"Disabled: {status.last_error or ''}".strip(),
+    }
+    state_label = state_labels.get(status.state, status.state)
+
+    st.markdown('<div class="kb-section-label" style="margin-top:1.5rem">Auto-ingest</div>',
+                unsafe_allow_html=True)
+    st.caption(f"Watching {status.watching_dir}")
+    st.caption(f"Status: {state_label}")
+    st.caption(f"Last scan: {status.last_scan_at or 'never'}")
+    st.caption(f"Transcribed: {status.transcribed_count}")
+    if status.state not in ("error", "disabled") and status.last_error:
+        st.caption(f"Last error: {status.last_error}")
+    st.button("Scan now", key="auto_ingest_scan_now", on_click=worker.run_once)
+
+
 def render_sidebar(meetings: list[dict], available: bool) -> str:
     total_duration = sum(int(m.get("duration_sec") or 0) for m in meetings)
     total_segments = sum(int(m.get("segment_count") or 0) for m in meetings)
@@ -554,6 +604,7 @@ def render_sidebar(meetings: list[dict], available: bool) -> str:
             f'<div class="kb-engine {engine_class}"><span class="kb-dot"></span>{engine_label}</div>',
             unsafe_allow_html=True,
         )
+        render_auto_ingest_status()
         st.markdown('<div class="kb-section-label" style="margin-top:1.5rem">Result layout</div>',
                     unsafe_allow_html=True)
         layout = st.segmented_control(
