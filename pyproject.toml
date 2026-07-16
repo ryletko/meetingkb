@@ -27,8 +27,8 @@ dev = ["pytest>=8.0", "ruff>=0.5", "playwright>=1.44"]
 kb = "meetingkb.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/meetingkb"
-Repository = "https://github.com/OWNER/meetingkb"
+Homepage = "https://github.com/ryletko/meetingkb"
+Repository = "https://github.com/ryletko/meetingkb"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meetingkb"]

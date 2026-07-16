@@ -97,7 +97,7 @@ Run `kb doctor` at any time to check which of these are present.
 ## Quickstart
 
 ```bash
-git clone https://github.com/OWNER/meetingkb.git
+git clone https://github.com/ryletko/meetingkb.git
 cd meetingkb
 pip install -e ".[transcribe,dev]"
 
@@ -193,8 +193,3 @@ above — it's fully self-contained and takes under a minute to set up.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
----
-
-Repository URLs in `pyproject.toml` use an `OWNER` placeholder; set it to
-the real GitHub owner/organization before publishing.
