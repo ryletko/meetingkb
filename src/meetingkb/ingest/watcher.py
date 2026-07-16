@@ -62,6 +62,7 @@ class AutoIngestWorker:
         self._stop = threading.Event()
         self._sleep = sleep
         self._seen_sizes: dict[Path, int] = {}
+        self._cycle_lock = threading.Lock()
 
     def _find_candidates(self) -> list[Path]:
         """Media files under data_dir missing a transcript, sorted by name."""
@@ -106,7 +107,17 @@ class AutoIngestWorker:
         return stable
 
     def run_once(self) -> None:
-        """Run a single scan/transcribe/index cycle. Never raises."""
+        """Run a single scan/transcribe/index cycle. Never raises.
+
+        Non-blocking cycle guard: `run_forever()` and the UI's "Scan now"
+        button both call this, and can otherwise race on `_seen_sizes` and on
+        concurrent `build_index()`/`generate_all()` calls against the same
+        SQLite file. If a cycle is already running (from either entry point),
+        this returns immediately without starting a second, overlapping
+        cycle -- callers should treat a no-op return as "already scanning".
+        """
+        if not self._cycle_lock.acquire(blocking=False):
+            return
         try:
             self._run_once_inner()
         except Exception as exc:  # noqa: BLE001 - never propagate; the loop must survive
@@ -115,6 +126,8 @@ class AutoIngestWorker:
                 self.status.state = "error"
                 self.status.last_error = str(exc)
                 self.status.current_file = None
+        finally:
+            self._cycle_lock.release()
 
     def _run_once_inner(self) -> None:
         # Only the real FasterWhisperTranscriber needs the optional
@@ -138,6 +151,7 @@ class AutoIngestWorker:
             with self._lock:
                 self.status.state = "transcribing"
                 self.status.current_file = path.name
+                self.status.last_error = None
             self.transcriber.transcribe_file(path)
             produced += 1
 

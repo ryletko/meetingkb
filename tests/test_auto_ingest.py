@@ -83,6 +83,33 @@ def test_growing_file_is_deferred_until_stable(tmp_path):
     assert worker.status.transcribed_count >= 1
 
 
+def test_run_once_noops_when_a_cycle_is_already_active(tmp_path):
+    # Simulates the background run_forever() loop and the UI's "Scan now"
+    # button racing on the same worker: while a cycle "is running" (lock
+    # held), a second run_once() call must return immediately without
+    # transcribing or indexing anything.
+    settings = Settings(data_dir=tmp_path, opensearch_enabled=False)
+    media = tmp_path / "meeting.webm"
+    media.write_bytes(b"x" * 100)
+    fake = _FakeTranscriber(settings)
+    worker = AutoIngestWorker(settings, fake)
+
+    # Prime _seen_sizes so this file would be considered "stable" (i.e. a
+    # normal run_once() would transcribe it) if the guard didn't block it.
+    worker.run_once()
+    assert fake.calls == []
+
+    worker._cycle_lock.acquire()
+    try:
+        worker.run_once()
+    finally:
+        worker._cycle_lock.release()
+
+    assert fake.calls == []
+    assert worker.status.transcribed_count == 0
+    assert not settings.db_path.exists()
+
+
 def test_missing_faster_whisper_sets_disabled_without_raising(tmp_path):
     # faster-whisper is intentionally not installed in this environment (no
     # [transcribe] extra), so a worker built with the real, non-injected
