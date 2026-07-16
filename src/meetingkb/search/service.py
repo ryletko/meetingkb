@@ -19,7 +19,12 @@ import requests
 from meetingkb.config import Settings
 from meetingkb.models import SearchHit
 from meetingkb.search.opensearch_backend import OpenSearchClient, OpenSearchError
-from meetingkb.search.query import fuzzy_match_query, highlight_fuzzy, query_variants
+from meetingkb.search.query import (
+    fuzzy_match_query,
+    highlight_fuzzy,
+    normalize_phrase,
+    query_variants,
+)
 
 
 def _seconds_label(seconds: float | int | None) -> str:
@@ -190,7 +195,12 @@ class SearchService:
                     continue
                 highlights = raw_hit.get("highlight", {}).get("text") or []
                 highlighted_text = highlights[0] if highlights else ""
-                match_source = f"expanded query: {variant}" if variant != query.strip() else ""
+                # query_variants()'s first variant is normalize_phrase(query) (lowercased/
+                # normalized), not the raw query -- compare against that, not query.strip(),
+                # so an exact mixed-case query like "Alpha" isn't mislabeled as "expanded
+                # query: alpha".
+                is_original = variant == normalize_phrase(query)
+                match_source = "" if is_original else f"expanded query: {variant}"
                 merged[hit_id] = _hit_from_source(
                     source, hit_id, raw_hit.get("_score"), highlighted_text, match_source
                 )
@@ -301,7 +311,9 @@ class SearchService:
             for hit in self._search_sqlite_fts(variant, meeting_id, term, limit):
                 hit_id = hit.id
                 if hit_id and hit_id not in merged:
-                    if variant != query.strip():
+                    # See _search_opensearch: compare against normalize_phrase(query), not
+                    # query.strip(), so an exact mixed-case query isn't labeled "expanded".
+                    if variant != normalize_phrase(query):
                         hit = replace(hit, match_source=f"expanded query: {variant}")
                     merged[hit_id] = hit
             if len(merged) >= limit:

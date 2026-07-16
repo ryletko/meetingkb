@@ -333,6 +333,12 @@ def build_index(settings: Settings, *, use_opensearch: bool = True) -> dict[str,
     """Build the SQLite (and, optionally, OpenSearch) meeting indexes.
 
     Returns ``{"meetings": int, "segments": int, "opensearch": bool}``.
+
+    Takes `Settings` (not an `AppContext`) and opens/closes its own short-lived
+    SQLite connection (and, via `index_opensearch`, its own `OpenSearchClient`)
+    by design: this is a self-contained batch operation that resets and
+    rebuilds the whole index, so it must not share the UI's cached serving
+    connection (`AppContext.sqlite()`). `AppContext` wires the serving path.
     """
     conn = connect(settings.db_path)
     try:

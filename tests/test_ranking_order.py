@@ -56,3 +56,27 @@ def test_exact_match_ranks_before_typo_only_fuzzy_match(tmp_path):
     assert hits[1].match_source == "fuzzy/transliteration"
     assert hits[0].id.endswith("_00000")
     assert hits[1].id.endswith("_00001")
+
+
+def test_exact_mixed_case_query_is_not_labeled_expanded(tmp_path):
+    """`query_variants()`'s first variant is `normalize_phrase(query)`
+    (lowercased/normalized), not the raw query -- an exact mixed-case query
+    like "Alpha" must still be recognized as the original query (empty
+    `match_source`), not mislabeled `"expanded query: alpha"` just because
+    the first variant differs from the raw, un-normalized `query.strip()`.
+    """
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir(parents=True)
+    stem = "Standup 03.03.2026 09-00-00"
+    segments = [{"start": 0.0, "end": 3.0, "text": "Alpha rollout begins today"}]
+    (tdir / f"{stem}.json").write_text(
+        json.dumps({"language": "en", "segments": segments}), encoding="utf-8"
+    )
+    settings = Settings(data_dir=tmp_path)
+    build_index(settings, use_opensearch=False)
+
+    ctx = build_context(settings)
+    hits = ctx.search_service().search("Alpha", None, None, 10, opensearch_available=False)
+
+    assert hits
+    assert hits[0].match_source == ""

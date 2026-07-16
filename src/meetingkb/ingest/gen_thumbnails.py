@@ -15,6 +15,11 @@ def generate_all(settings: Settings) -> int:
     """Generate storyboard thumbnails for every meeting missing them.
 
     Returns the number of meetings for which thumbnails were generated.
+
+    Takes `Settings` (not an `AppContext`) and opens/closes its own
+    short-lived SQLite connection by design: this is a self-contained batch
+    operation, so it must not share the UI's cached serving connection
+    (`AppContext.sqlite()`). `AppContext` wires the serving path.
     """
     conn = connect(settings.db_path)
     try:

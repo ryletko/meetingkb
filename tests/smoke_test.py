@@ -7,6 +7,7 @@ import json
 import shutil
 from pathlib import Path
 
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from meetingkb.config import get_settings
@@ -116,6 +117,41 @@ def test_search_renders_result_cards(tmp_path, monkeypatch):
     # so their presence proves a card actually rendered (not just "no crash").
     assert "kb-snippet" in rendered_text
     assert "kb-card-head" in rendered_text
+
+
+def test_app_shows_empty_state_on_fresh_data_dir(tmp_path, monkeypatch):
+    """A genuinely fresh data dir (no `build_index` run at all) has no SQLite
+    schema yet. `AppContext.sqlite()` must create it (idempotent
+    `init_db`) so `load_meetings()` doesn't raise `sqlite3.OperationalError:
+    no such table: meetings` and the "No meetings indexed yet" empty state
+    renders instead of an exception.
+    """
+    data_dir = tmp_path / "fresh_data"
+    data_dir.mkdir()
+
+    monkeypatch.setenv("KB_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("KB_OPENSEARCH_URL", CLOSED_OPENSEARCH_URL)
+    monkeypatch.delenv("KB_TERMS_FILE", raising=False)
+    get_settings.cache_clear()
+    # `st.cache_resource`/`st.cache_data` (unlike `get_settings`'s `lru_cache`) are
+    # process-wide, not per-AppTest-run -- e.g. `db_conn()` (cache_resource, no ttl)
+    # would otherwise keep returning whichever sqlite connection an *earlier* test's
+    # AppTest run already cached, silently ignoring this test's fresh, empty data_dir.
+    # Clear again in `finally` so a *later* test doesn't inherit this test's
+    # (about-to-be-irrelevant) cached AppContext instead of building its own.
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    try:
+        at = AppTest.from_file(str(APP_PATH), default_timeout=30).run()
+
+        assert not at.exception
+        rendered_text = "\n".join(
+            element.value for element in [*at.markdown, *at.title] if hasattr(element, "value")
+        )
+        assert "No meetings indexed yet" in rendered_text
+    finally:
+        st.cache_resource.clear()
+        st.cache_data.clear()
 
 
 def test_theater_focus_renders_without_exception(tmp_path, monkeypatch):

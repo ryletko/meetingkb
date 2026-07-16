@@ -97,3 +97,47 @@ def test_media_server_rejects_symlink_escape(tmp_path):
     base = start_media_server(root, preferred_port=PORT + 1)
     r = requests.get(f"{base}/escape.mp4", timeout=5)
     assert r.status_code == 403
+
+
+def test_media_server_rejects_in_root_symlink_classified_by_real_extension(tmp_path):
+    """An in-root symlink `leak.mp4 -> knowledge.sqlite` passes the
+    containment check (both endpoints are inside root) but must be
+    classified by its REAL extension (.sqlite, rejected) rather than its
+    logical `.mp4` name -- otherwise it would look allowed while `open()`
+    actually streams the database. Skips gracefully if this OS/user cannot
+    create symlinks (e.g. Windows without Developer Mode/admin)."""
+    root = tmp_path / "leak_root"
+    root.mkdir()
+    db = root / "knowledge.sqlite"
+    db.write_bytes(b"sqlite-bytes")
+    link = root / "leak.mp4"
+    try:
+        os.symlink(db, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not permitted on this OS/user")
+
+    base = start_media_server(root, preferred_port=PORT + 2)
+    r = requests.get(f"{base}/leak.mp4", timeout=5)
+    assert r.status_code == 403
+
+
+def test_media_server_rejects_thumbs_symlink_classified_by_real_path(tmp_path):
+    """`thumbs/alias.vtt -> ../transcripts/raw.vtt` passes containment (both
+    endpoints under root) and logically matches thumbs/'s .vtt-allowed
+    extension, but its REAL target lives under transcripts/, outside the
+    thumbs/ bucket -- classification must follow the real path and reject
+    it. Skips gracefully if this OS/user cannot create symlinks."""
+    root = tmp_path / "alias_root"
+    (root / "transcripts").mkdir(parents=True)
+    raw = root / "transcripts" / "raw.vtt"
+    raw.write_text("WEBVTT", encoding="utf-8")
+    (root / "thumbs").mkdir()
+    link = root / "thumbs" / "alias.vtt"
+    try:
+        os.symlink(raw, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not permitted on this OS/user")
+
+    base = start_media_server(root, preferred_port=PORT + 3)
+    r = requests.get(f"{base}/thumbs/alias.vtt", timeout=5)
+    assert r.status_code == 403

@@ -11,17 +11,31 @@ exclude that marker). To run it manually:
 Drives a real browser (Playwright's bundled Chromium) against the running
 Streamlit app and exercises search, context paging/formatting, and the
 embedded video player using the bundled sample data (terms Alpha/Beta/Gamma).
+
+The bundled sample_data has no committed media (transcript-only fixture), so
+the test itself generates a tiny video for one sample meeting via ffmpeg (if
+ffmpeg is on PATH) and reindexes sample_data in place before driving the
+browser, so the embedded-player assertion is genuinely exercised rather than
+a guaranteed no-op. If ffmpeg is unavailable, that assertion is skipped
+gracefully instead of failing on a fixture property this suite doesn't
+control -- see `_ensure_sample_video()` / `open_video()`.
 """
 from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+from meetingkb.config import Settings
+from meetingkb.ingest.indexer import build_index
 
 pytestmark = pytest.mark.integration
 
@@ -31,6 +45,9 @@ try:  # keep debug output readable on a cp1251 Windows console
 except Exception:  # noqa: BLE001
     pass
 
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SAMPLE_DATA_DIR = REPO_ROOT / "sample_data"
 
 BASE_URL = os.environ.get("KB_URL", "http://127.0.0.1:8502")
 _TMP_DIR = Path(tempfile.gettempdir())
@@ -76,11 +93,74 @@ def search(page: Page, query: str, expected_terms: list[str]) -> None:
         raise AssertionError(f"query {query!r} did not show expected terms: {missing}")
 
 
-def open_video(page: Page) -> None:
+def _ensure_sample_video() -> bool:
+    """Generate a tiny real video for one sample meeting and reindex
+    ``sample_data`` in place, so ``open_video()``'s player-iframe assertion is
+    genuinely exercised instead of being a guaranteed no-op.
+
+    The bundled ``sample_data`` fixture is transcript-only by design (no
+    committed binary media), so without this ``has_video`` is always False in
+    ``web/app.py`` and no player ``<iframe>`` ever renders. This generates a
+    1-second ``testsrc`` clip via ffmpeg for the alphabetically-first sample
+    meeting (both bundled meetings mention "Alpha", so the "Alpha" search
+    used below still matches) and rebuilds the SQLite index so ``source_path``
+    picks it up. The already-running ``kb serve`` instance (started per this
+    module's docstring, before pytest runs) shares the same sqlite file and
+    will see the new ``source_path`` on its next query -- no restart needed.
+
+    Generated files (``*.mp4``, ``knowledge.sqlite``) are git-ignored.
+
+    Returns True if a video fixture is present (freshly generated here, or
+    left over from a prior run) so ``open_video()`` should assert on it;
+    False if ffmpeg is unavailable, in which case ``open_video()`` skips its
+    assertion rather than failing on a fixture property this test suite
+    doesn't control.
+    """
+    if shutil.which("ffmpeg") is None:
+        return False
+    transcripts_dir = SAMPLE_DATA_DIR / "transcripts"
+    json_paths = sorted(transcripts_dir.glob("*.json"))
+    if not json_paths:
+        return False
+    stem = json_paths[0].stem
+    video_path = SAMPLE_DATA_DIR / f"{stem}.mp4"
+    if not video_path.exists():
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=1",
+                    "-t", "1",
+                    str(video_path),
+                ],
+                check=True,
+                timeout=30,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return False
+    settings = Settings(data_dir=SAMPLE_DATA_DIR, terms_file=SAMPLE_DATA_DIR / "terms.txt")
+    build_index(settings, use_opensearch=False)
+    return True
+
+
+def open_video(page: Page, *, expect_video: bool) -> None:
     # The video is an embedded Plyr player served via the local media server as an
     # <iframe> next to the transcript (no tab, no Play button).
+    #
+    # Guarded: the bundled sample_data is transcript-only, so unless
+    # `_ensure_sample_video()` generated a fixture video (needs ffmpeg on
+    # PATH), no result has `has_video` and no player iframe ever renders --
+    # skip rather than fail on that fixture property. When a video fixture
+    # *is* present (expect_video=True), a missing iframe is a real failure.
     iframe = page.locator('iframe[src*="player.html"]').first
-    iframe.wait_for(state="attached", timeout=30_000)
+    try:
+        iframe.wait_for(state="attached", timeout=30_000 if expect_video else 5_000)
+    except PlaywrightTimeoutError:
+        if expect_video:
+            raise
+        print("no video result present (sample_data is transcript-only, ffmpeg unavailable "
+              "or not run) -- skipping video assertion")
+        return
     src = iframe.get_attribute("src") or ""
     if "video=" not in src:
         raise AssertionError("player iframe is missing its video source")
@@ -118,6 +198,7 @@ def verify_context_controls(page: Page) -> None:
 
 
 def test_playwright_smoke() -> None:
+    video_ready = _ensure_sample_video()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
@@ -135,7 +216,7 @@ def test_playwright_smoke() -> None:
 
         search(page, "Alpha", ["Alpha"])
         verify_context_controls(page)
-        open_video(page)
+        open_video(page, expect_video=video_ready)
         search(page, "Beta", ["Beta"])
         search(page, "Alha", ["Alpha"])
 

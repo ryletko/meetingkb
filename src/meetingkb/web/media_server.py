@@ -12,6 +12,16 @@ the allowlist is path-specific: `assets/` only serves player-asset extensions,
 `thumbs/` only serves storyboard extensions (including `.vtt`), and everything
 else only serves playable-media extensions. Everything not matching gets a
 403, even inside `assets/`/`thumbs/` (e.g. a planted `.json`/`.sqlite` there).
+
+Classification (which of the three buckets above applies, and against which
+extension) is done on the RESOLVED REAL path, not the logical requested path.
+Otherwise an in-root symlink like `data_dir/leak.mp4 -> knowledge.sqlite`
+would pass the containment check and get classified by its logical `.mp4`
+name (allowed), while `open()` actually serves the real target -- the
+database. Resolving first means `leak.mp4` is classified by its real
+extension (`.sqlite`, rejected), and a `thumbs/alias.vtt` symlinked to
+`transcripts/raw.vtt` is classified outside `thumbs/` by its real path
+(rejected), not by the `.vtt` name under `thumbs/` it merely appears at.
 """
 from __future__ import annotations
 
@@ -94,6 +104,13 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         `assets/x.json` is rejected). Real paths are resolved (symlinks
         followed) before the containment check, so a symlink under root that
         points outside of it is rejected too.
+
+        Classification is likewise done on the RESOLVED real path/extension,
+        not the logical requested `rel`/`path`. An in-root symlink (e.g.
+        `leak.mp4 -> knowledge.sqlite`, or `thumbs/alias.vtt -> ../transcripts/raw.vtt`)
+        passes containment but must be classified by what it actually
+        resolves to, or `open()` would serve the real target under a
+        logical name/bucket that looked allowed.
         """
         root = os.path.abspath(self.directory)
         try:
@@ -112,13 +129,13 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if real_rel.startswith("..") or os.path.isabs(real_rel):
             return False  # symlink escapes the server root
 
-        rel_parts = Path(rel).parts
-        ext = os.path.splitext(path)[1].lower()
-        if rel_parts and rel_parts[0] == "assets":
-            return ext in _ASSETS_EXT
-        if rel_parts and rel_parts[0] == "thumbs":
-            return ext in _THUMBS_EXT
-        return ext in _MEDIA_EXT
+        real_parts = Path(real_rel).parts
+        real_ext = os.path.splitext(real_path)[1].lower()
+        if real_parts and real_parts[0] == "assets":
+            return real_ext in _ASSETS_EXT
+        if real_parts and real_parts[0] == "thumbs":
+            return real_ext in _THUMBS_EXT
+        return real_ext in _MEDIA_EXT
 
     def do_HEAD(self) -> None:
         path = self._resolve()

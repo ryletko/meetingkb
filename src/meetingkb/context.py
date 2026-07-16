@@ -23,7 +23,15 @@ class AppContext:
 
     def sqlite(self) -> sqlite3.Connection:
         if self._sqlite is None:
-            self._sqlite = storage.connect(self.settings.db_path)
+            conn = storage.connect(self.settings.db_path)
+            # Idempotent (CREATE TABLE IF NOT EXISTS ...): a genuinely fresh
+            # data dir has no schema yet, and without this the UI's first
+            # query (e.g. web/app.py's load_meetings()) raises "no such
+            # table: meetings" instead of rendering the empty state. Already
+            # a no-op against an indexed DB, so this doesn't affect
+            # build_index's own connect+init_db.
+            storage.init_db(conn)
+            self._sqlite = conn
         return self._sqlite
 
     def search_backend(self) -> OpenSearchClient:
