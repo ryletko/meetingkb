@@ -80,6 +80,23 @@ interfaces       meetingkb.web (Streamlit UI + media server)
   dispatch of its own, and renders the RAG answer by rendering
   `RagDocument`s.
 
+## Languages
+
+Search tokenization is Unicode-aware and works for any script. On the
+OpenSearch path, indexed/queried text (`text`, `title`, `term_text`) uses a
+custom `folding` analyzer (`standard` tokenizer + `lowercase` +
+`asciifolding`), so accented Latin scripts are matched accent-insensitively
+(e.g. `cafe` matches `café`, `muller` matches `Müller`) for French, German,
+Spanish, and other Latin-alphabet languages, on top of the existing
+`fuzziness: AUTO` typo tolerance. Cyrillic has no ASCII-folded form, so
+`asciifolding` leaves it unchanged and Russian search is unaffected. The
+SQLite fallback tokenizer recognizes any Unicode script (accented Latin,
+CJK, Arabic, Greek, etc.), but its transliteration (Cyrillic ↔ Latin) and
+Russian-suffix stemming remain RU/EN-specific helpers that simply don't fire
+for other scripts. Changing the analyzer requires re-running `kb index` to
+rebuild the OpenSearch indices — existing indices keep their old analyzer
+until reindexed.
+
 ## Requirements
 
 - Python ≥ 3.11

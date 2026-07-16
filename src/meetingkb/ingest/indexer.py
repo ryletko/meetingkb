@@ -247,13 +247,32 @@ def keyword_text_mapping() -> dict[str, Any]:
     return {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 512}}}
 
 
+def _folding_text_mapping() -> dict[str, Any]:
+    """Text field with a `.keyword` sub-field, analyzed with the accent-folding analyzer."""
+    mapping = keyword_text_mapping()
+    mapping["analyzer"] = "folding"
+    return mapping
+
+
+_FOLDING_ANALYSIS_SETTINGS: dict[str, Any] = {
+    "analysis": {
+        "analyzer": {
+            "folding": {"tokenizer": "standard", "filter": ["lowercase", "asciifolding"]}
+        }
+    }
+}
+
+
 def meetings_mapping() -> dict[str, Any]:
     return {
-        "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}},
+        "settings": {
+            "index": {"number_of_shards": 1, "number_of_replicas": 0},
+            **_FOLDING_ANALYSIS_SETTINGS,
+        },
         "mappings": {
             "properties": {
                 "id": {"type": "keyword"},
-                "title": keyword_text_mapping(),
+                "title": _folding_text_mapping(),
                 "meeting_date": {"type": "date"},
                 "source_path": keyword_text_mapping(),
                 "transcript_json_path": {"type": "keyword", "ignore_above": 2048},
@@ -265,7 +284,7 @@ def meetings_mapping() -> dict[str, Any]:
                 "segment_count": {"type": "integer"},
                 "term_count": {"type": "integer"},
                 "terms": {"type": "keyword"},
-                "term_text": {"type": "text"},
+                "term_text": {"type": "text", "analyzer": "folding"},
             }
         },
     }
@@ -273,12 +292,15 @@ def meetings_mapping() -> dict[str, Any]:
 
 def segments_mapping() -> dict[str, Any]:
     return {
-        "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}},
+        "settings": {
+            "index": {"number_of_shards": 1, "number_of_replicas": 0},
+            **_FOLDING_ANALYSIS_SETTINGS,
+        },
         "mappings": {
             "properties": {
                 "id": {"type": "keyword"},
                 "meeting_id": {"type": "keyword"},
-                "title": keyword_text_mapping(),
+                "title": _folding_text_mapping(),
                 "meeting_date": {"type": "date"},
                 "source_path": keyword_text_mapping(),
                 "transcript_json_path": {"type": "keyword", "ignore_above": 2048},
@@ -289,9 +311,9 @@ def segments_mapping() -> dict[str, Any]:
                 "start_label": {"type": "keyword"},
                 "end_label": {"type": "keyword"},
                 "duration_sec": {"type": "float"},
-                "text": {"type": "text"},
+                "text": {"type": "text", "analyzer": "folding"},
                 "terms": {"type": "keyword"},
-                "term_text": {"type": "text"},
+                "term_text": {"type": "text", "analyzer": "folding"},
                 "model": {"type": "keyword"},
             }
         },

@@ -1,4 +1,4 @@
-from meetingkb.search.query import fuzzy_match_query, highlight_fuzzy, query_variants
+from meetingkb.search.query import fuzzy_match_query, highlight_fuzzy, query_variants, tokenize
 
 
 def test_variants_transliterate_not_translate():
@@ -27,3 +27,13 @@ def test_highlight_escapes_and_marks():
     out = highlight_fuzzy("a <b> семафор", ["семафор"])
     assert "&lt;b&gt;" in out
     assert "<mark>" in out
+
+
+def test_tokenize_keeps_accented_latin_tokens_intact():
+    tokens = tokenize("café Müller")
+    assert "café" in tokens
+    assert "müller" in tokens
+
+
+def test_tokenize_handles_non_latin_scripts():
+    assert tokenize("北京会议") != []

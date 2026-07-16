@@ -4,7 +4,7 @@ import html
 import re
 from functools import lru_cache
 
-WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё][0-9A-Za-zА-Яа-яЁё_.+#-]*")
+WORD_RE = re.compile(r"\w[\w.+#-]*", re.UNICODE)
 
 CYR_TO_LAT = {
     "а": "a",
