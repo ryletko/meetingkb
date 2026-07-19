@@ -8,6 +8,10 @@ questions about what was discussed via a local or OpenAI-compatible LLM.
 Everything runs on your own machine — no data leaves your infrastructure
 unless you point the LLM at a remote endpoint yourself.
 
+![MeetingKB — full-text transcript search with an inline video player](docs/screenshots/search.png)
+
+<sub>Search view on the bundled sample data. The "ask"/RAG view isn't captured yet — see [docs/screenshots/README.md](docs/screenshots/README.md).</sub>
+
 ## Features
 
 - **Transcription** — batch-transcribes media files with `faster-whisper`
@@ -108,6 +112,8 @@ until reindexed.
   generation, but everything also runs on CPU
 - The `[transcribe]` extra (`faster-whisper`) if you intend to transcribe
   media locally
+- Optional: [`uv`](https://docs.astral.sh/uv/) — an alternative to `pip`/`venv`
+  for creating the environment and running `kb` (see [Run with uv](#run-with-uv))
 
 Run `kb doctor` at any time to check which of these are present.
 
@@ -137,6 +143,39 @@ repo root, and `deploy/` is not included in the packaged wheel — so `kb up`
 only works from a cloned repo checkout, not from a bare `pip install`. Use
 the explicit `docker compose -f deploy/docker-compose.yml up -d` step above
 instead if you installed from a wheel/PyPI.
+
+### Run with [uv](https://docs.astral.sh/uv/)
+
+Prefer [uv](https://docs.astral.sh/uv/)? It creates and manages the project
+virtualenv straight from `pyproject.toml`, so you can skip the manual
+`venv`/`pip` steps above:
+
+```bash
+git clone https://github.com/ryletko/meetingkb.git
+cd meetingkb
+
+# Create ./.venv with the same extras as `pip install ".[transcribe,dev]"`
+uv sync --all-extras
+source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
+```
+
+Once the venv is active, `kb` is on `PATH` and every `kb ...` command in this
+README works unchanged — including the sample-data demo below:
+
+```bash
+kb doctor
+kb index
+kb serve
+```
+
+Prefer not to activate the venv? Invoke commands through uv directly instead.
+`uv run` re-syncs the environment on each call, so pass the same extras every
+time:
+
+```bash
+uv run --all-extras kb doctor
+uv run --all-extras kb serve
+```
 
 ### Try it with the bundled sample data (no Docker/GPU needed)
 
@@ -200,14 +239,6 @@ database on a separate (faster or larger) disk from the transcripts.
 | `kb up` | Start OpenSearch (Docker Compose), index, generate thumbnails, then serve — an end-to-end bootstrap. |
 | `kb doctor` | Check the local environment for required and optional tooling (ffmpeg, Docker, Python version, `faster-whisper`, GPU). |
 | `kb version` | Print the installed MeetingKB version. |
-
-## Screenshots
-
-Screenshots are not included yet — see
-[docs/screenshots/README.md](docs/screenshots/README.md) for why and how
-they'll be added. In the meantime, the fastest way to see the UI is the
-[sample-data demo](#try-it-with-the-bundled-sample-data-no-dockergpu-needed)
-above — it's fully self-contained and takes under a minute to set up.
 
 ## License
 

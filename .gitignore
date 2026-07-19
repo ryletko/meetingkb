@@ -13,6 +13,8 @@ dist/
 thumbs/
 opensearch_data/
 meili_data/
+# Player assets copied into the data dir at runtime (source: src/meetingkb/web/assets)
+/sample_data/assets/
 
 # Media & transcripts
 *.webm

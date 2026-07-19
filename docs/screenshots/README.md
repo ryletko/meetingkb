@@ -1,7 +1,8 @@
 # Screenshots
 
-This directory is reserved for README screenshots of the search and RAG
-("ask") views, but none are checked in yet.
+This directory holds README screenshots of the search and RAG ("ask") views.
+`search.png` (the search view, captured from the bundled sample data) is
+checked in; `rag.png` (the "ask"/RAG view) is not captured yet.
 
 ## Why
 
