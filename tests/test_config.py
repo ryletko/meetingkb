@@ -12,11 +12,13 @@ def test_defaults_derive_from_data_dir(tmp_path):
 
 
 def test_no_project_specific_defaults():
+    """Shipped defaults stay deployment-neutral: no glossary, no fixed language."""
     s = Settings(data_dir=Path("./data"))
     assert s.terms == []
-    joined = " ".join([s.rag_system_prompt, s.os_meetings_index, s.os_segments_index])
-    for banned in ("Example", "Tracker", "Vendor", "Russian"):
-        assert banned not in joined
+    assert s.os_meetings_index == "meetingkb_meetings"
+    assert s.os_segments_index == "meetingkb_segments"
+    # The RAG prompt must not pin an answer language; it follows the question.
+    assert "same language as the question" in s.rag_system_prompt
 
 
 def test_env_override(monkeypatch, tmp_path):

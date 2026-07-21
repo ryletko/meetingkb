@@ -1,8 +1,8 @@
 """Transcript parsing: Whisper JSON -> domain models.
 
-Ported faithfully from the original ingestion script
-(``slugify``, ``parse_meeting_date``, ``timestamp_label``, ``load_json``).
-Term detection is intentionally not included here; it belongs to the indexer.
+Holds the filename/timestamp helpers used by the indexer (``slugify``,
+``parse_meeting_date``, ``timestamp_label``, ``load_json``). Term detection is
+intentionally not included here; it belongs to the indexer.
 """
 
 from __future__ import annotations

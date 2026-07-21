@@ -22,4 +22,3 @@ def test_messages_use_injected_prompt_and_cite():
     assert len(msgs) == 2
     assert msgs[0]["content"] == "NEUTRAL RULES"
     assert "[S1]" in msgs[1]["content"]
-    assert "Example" not in msgs[0]["content"]

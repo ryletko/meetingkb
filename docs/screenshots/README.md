@@ -4,14 +4,14 @@ This directory holds README screenshots of the search and RAG ("ask") views.
 `search.png` (the search view, captured from the bundled sample data) is
 checked in; `rag.png` (the "ask"/RAG view) is not captured yet.
 
-## Why
+## Ground rule
 
-The images produced while building this project came from real internal
-meetings and cannot be published in an open-source repository. Rather than
-ship placeholder or synthetic images, screenshots are intentionally omitted
-until someone captures clean ones from non-sensitive data.
+Screenshots must be captured from the bundled sample data only. A screenshot
+of a real recording would publish meeting content — and the faces of whoever
+was on the call — into a public repository, so no capture from private data
+belongs here.
 
-## How to capture them before publishing
+## How to capture them
 
 Use the bundled sample data so nothing private ever appears in a frame:
 

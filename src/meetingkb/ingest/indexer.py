@@ -1,9 +1,8 @@
 """Meeting indexer: Whisper JSON transcripts -> SQLite + OpenSearch.
 
-Ported from the original ingestion script. Configuration
-(paths, canonical terms, OpenSearch endpoints) is injected via a
-``meetingkb.config.Settings`` instance instead of being read from
-module-level constants.
+Configuration (paths, canonical terms, OpenSearch endpoints) is injected via a
+``meetingkb.config.Settings`` instance instead of being read from module-level
+constants.
 """
 from __future__ import annotations
 
